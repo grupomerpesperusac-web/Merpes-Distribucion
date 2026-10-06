@@ -1,0 +1,1516 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RUTAS MERPES — Optimización de Despachos</title>
+<style>
+/* ══ TOKENS ══════════════════════════════════════════ */
+:root{
+  --ink:#0F1923; --ink-soft:#3D5166; --surface:#EEF2F7;
+  --panel:#fff; --border:#CBD5E1;
+  --accent:#1A56E8; --accent-dk:#1240C0;
+  --merpes-blue:#29ABE2; --merpes-orange:#F7941D;
+  --norte:#0369A1; --sur:#16A34A; --este:#7C3AED;
+  --callao:#B45309; --centro:#0F766E; --prov:#9333EA;
+  --danger:#DC2626; --warn:#D97706; --ok:#16A34A;
+  --r:8px; --shadow:0 1px 4px rgba(0,0,0,.10);
+  --shadow-lg:0 6px 20px rgba(0,0,0,.14);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:system-ui,-apple-system,Arial,sans-serif;background:var(--surface);color:var(--ink);font-size:14px;line-height:1.5;min-height:100vh}
+
+/* ══ HEADER ══════════════════════════════════════════ */
+.hdr{
+  background:#fff; border-bottom:3px solid var(--merpes-blue);
+  padding:0 24px; height:64px;
+  display:flex; align-items:center; gap:16px;
+  box-shadow:0 2px 8px rgba(0,0,0,.08);
+  position:sticky; top:0; z-index:100;
+}
+.hdr-logo{height:48px; width:auto; object-fit:contain}
+.hdr-text h1{font-size:17px;font-weight:900;color:var(--ink);letter-spacing:-.3px}
+.hdr-text p{font-size:11px;color:#666;margin-top:1px}
+.hdr-badge{
+  margin-left:auto; background:var(--merpes-blue); color:#fff;
+  border-radius:8px; padding:6px 14px; text-align:center;
+  font-size:12px; font-weight:700; white-space:nowrap; line-height:1.4;
+}
+
+/* ══ NAV ══════════════════════════════════════════════ */
+.nav{
+  background:#1a2a3a; display:flex; gap:2px;
+  padding:0 20px; overflow-x:auto; border-bottom:1px solid rgba(255,255,255,.08);
+}
+.nav::-webkit-scrollbar{height:3px}
+.nav::-webkit-scrollbar-thumb{background:#334155;border-radius:2px}
+.nav-btn{
+  padding:11px 15px; font-size:12.5px; font-weight:500;
+  color:#94A3B8; border:none; background:none; cursor:pointer;
+  white-space:nowrap; border-bottom:2.5px solid transparent; transition:all .15s;
+}
+.nav-btn:hover{color:#E2E8F0}
+.nav-btn.active{color:#fff; border-bottom-color:var(--merpes-blue)}
+
+/* ══ MAIN ══════════════════════════════════════════════ */
+.main{padding:20px 24px; max-width:1440px; margin:0 auto}
+.sec{display:none}.sec.active{display:block}
+.ph{margin-bottom:18px}
+.ph h1{font-size:19px;font-weight:800;letter-spacing:-.4px}
+.ph p{color:var(--ink-soft);font-size:12.5px;margin-top:3px}
+
+/* ══ CARD ══════════════════════════════════════════════ */
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow)}
+.ch{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px}
+.ct{font-size:13px;font-weight:700;color:var(--ink)}
+.cb{padding:16px}
+
+/* ══ PILLS RESUMEN ══════════════════════════════════════ */
+.pills{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.pill{background:#fff;border-radius:10px;padding:10px 18px;display:flex;align-items:center;gap:10px;box-shadow:var(--shadow);font-size:14px;border:1px solid var(--border)}
+.pill-icon{font-size:22px}
+.pill-num{font-size:22px;font-weight:900}
+.pill-label{font-size:12px;color:#666}
+.pill.p-activas .pill-num{color:#27AE60}
+.pill.p-inact .pill-num{color:#E74C3C}
+.pill.p-cam .pill-num{color:var(--merpes-blue)}
+.pill.p-mot .pill-num{color:var(--merpes-orange)}
+
+/* ══ FLOTA — SECCIONES CAMION/MOTO ══════════════════════ */
+.fl-sec{margin-bottom:28px}
+.fl-sec-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.fl-sec-title{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:800;color:var(--ink)}
+.fl-sec-title .big-icon{font-size:26px}
+.btn-add-cam{background:#27AE60;color:#fff;border:none;border-radius:var(--r);padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;transition:background .2s}
+.btn-add-cam:hover{background:#219150}
+.btn-add-mot{background:var(--merpes-orange);color:#fff;border:none;border-radius:var(--r);padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;transition:background .2s}
+.btn-add-mot:hover{background:#d97800}
+
+/* ══ GRID UNIDADES ══════════════════════════════════════ */
+.ugrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+
+/* ══ TARJETA UNIDAD (estilo proyecto original mejorado) ═ */
+.ucard{
+  background:#fff; border-radius:12px; padding:0;
+  box-shadow:0 2px 8px rgba(0,0,0,.07);
+  border-left:5px solid var(--merpes-blue);
+  transition:box-shadow .2s, opacity .2s;
+  overflow:hidden;
+}
+.ucard.moto{border-left-color:var(--merpes-orange)}
+.ucard.inactiva{opacity:.55;background:#f8f8f8}
+.ucard-head{
+  padding:10px 14px; display:flex; align-items:center; gap:10px;
+  border-bottom:1px solid #f0f0f0;
+}
+.ucard-icon{font-size:28px;line-height:1}
+.ucard-id{font-weight:800;font-size:15px;color:var(--merpes-blue)}
+.ucard.moto .ucard-id{color:var(--merpes-orange)}
+.ucard-tipo{font-size:11px;color:#888;margin-top:1px}
+.ucard-acciones{display:flex;gap:6px;margin-left:auto}
+.badge-disp{
+  display:inline-block;padding:3px 10px;border-radius:20px;
+  font-size:10.5px;font-weight:700;
+}
+.bd-activa{background:#DCFCE7;color:#166534}
+.bd-inactiva{background:#FEE2E2;color:#991B1B}
+.ucard-body{padding:14px;display:grid;gap:9px}
+.field{display:flex;flex-direction:column;gap:3px}
+.field label{font-size:10px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.5px}
+.field input,.field select,.field textarea{
+  width:100%;border:1.5px solid #e0e0e0;border-radius:6px;
+  padding:7px 10px;font-size:13px;font-family:inherit;color:var(--ink);
+  background:#fafafa;transition:border-color .15s;outline:none;
+}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--merpes-blue);background:#fff}
+.ucard.moto .field input:focus,.ucard.moto .field select:focus{border-color:var(--merpes-orange)}
+.field textarea{resize:none;height:50px;font-size:12px}
+.frow{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.caps-row{display:flex;gap:8px;margin-top:8px;padding-top:10px;border-top:1px solid #f0f0f0}
+.cap-chip{flex:1;text-align:center;padding:6px 4px;background:#f7f8fa;border-radius:5px}
+.cap-val{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}
+.cap-lbl{font-size:10px;color:#888;margin-top:1px}
+.cap-bar-wrap{margin-top:3px;background:#E2E8F0;border-radius:4px;height:4px;overflow:hidden}
+.cap-bar{height:100%;border-radius:4px;transition:width .4s}
+.cap-ok{background:#16A34A}.cap-warn{background:#D97706}.cap-full{background:#DC2626}
+
+.btn-toggle{border:none;border-radius:6px;padding:5px 9px;font-size:11px;font-weight:700;cursor:pointer;transition:.2s}
+.btn-toggle.desact{background:#ffeaea;color:#E74C3C}
+.btn-toggle.desact:hover{background:#E74C3C;color:#fff}
+.btn-toggle.act{background:#e6f9ed;color:#27AE60}
+.btn-toggle.act:hover{background:#27AE60;color:#fff}
+.btn-elim{border:none;border-radius:6px;padding:5px 8px;font-size:11px;background:#f0f0f0;color:#999;cursor:pointer;transition:.2s}
+.btn-elim:hover{background:#E74C3C;color:#fff}
+
+/* ══ BTNS GENERALES ══════════════════════════════════════ */
+.btn{padding:7px 13px;border-radius:var(--r);font-size:12.5px;font-weight:700;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s;white-space:nowrap}
+.btn-p{background:var(--accent);color:#fff}.btn-p:hover{background:var(--accent-dk)}
+.btn-s{background:#fff;color:var(--ink);border:1px solid var(--border)}.btn-s:hover{background:var(--surface)}
+.btn-d{background:#FEE2E2;color:#DC2626;border:1px solid #FECACA}
+.btn-g{background:#DCFCE7;color:#166534;border:1px solid #BBF7D0}
+.btn-sm{padding:5px 9px;font-size:11.5px}
+.btn-o{background:var(--merpes-orange);color:#fff}.btn-o:hover{background:#d97800}
+
+/* ══ IMPORT / UPLOAD ═════════════════════════════════════ */
+.import-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
+.iz{border:2px dashed var(--border);border-radius:var(--r);padding:20px;text-align:center;cursor:pointer;transition:all .2s;margin-bottom:10px}
+.iz:hover,.iz.dov{border-color:var(--accent);background:#EFF6FF}
+.iz-icon{font-size:28px;margin-bottom:6px}
+.iz-title{font-size:13.5px;font-weight:700;margin-bottom:3px}
+.iz-sub{font-size:11px;color:var(--ink-soft)}
+.import-msg{padding:9px 13px;border-radius:6px;font-size:12.5px;margin-top:8px}
+.im-ok{background:#F0FDF4;border:1px solid #BBF7D0;color:#166534}
+.im-err{background:#FEF2F2;border:1px solid #FECACA;color:#991B1B}
+.resp-badge{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:11px;color:var(--ink-soft);background:#F8FAFC;
+  border:1px solid var(--border);border-radius:20px;padding:2px 10px;margin-bottom:8px;
+}
+textarea.paste{width:100%;padding:8px;border:1.5px solid var(--border);border-radius:6px;font-size:11.5px;font-family:monospace;resize:vertical;background:#fafafa;outline:none;transition:border-color .15s}
+textarea.paste:focus{border-color:var(--accent);background:#fff}
+
+/* ══ TABLA ═══════════════════════════════════════════════ */
+.tb-wrap{overflow-x:auto;border-radius:var(--r);border:1px solid var(--border)}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+thead th{background:#F8FAFC;padding:9px 10px;text-align:left;font-size:10.5px;font-weight:700;color:var(--ink-soft);border-bottom:1px solid var(--border);white-space:nowrap;position:sticky;top:0;z-index:5}
+thead th:first-child{padding-left:14px}
+tbody tr{border-bottom:1px solid #F1F5F9;transition:background .1s}
+tbody tr:hover{background:#F8FAFC}
+tbody td{padding:8px 10px;vertical-align:middle}
+tbody td:first-child{padding-left:14px}
+
+/* ══ ZONA BADGES ══════════════════════════════════════════ */
+.zb{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10.5px;font-weight:700}
+.zNORTE{background:#DBEAFE;color:#0369A1}.zSUR{background:#DCFCE7;color:#16A34A}
+.zESTE{background:#EDE9FE;color:#7C3AED}.zCALLAO{background:#FEF3C7;color:#B45309}
+.zCENTROSUR{background:#CCFBF1;color:#0F766E}.zPROVINCIA{background:#F3E8FF;color:#9333EA}
+
+/* ══ MOTOR SELECTS ══════════════════════════════════════ */
+.us{padding:4px 6px;border:1.5px solid var(--border);border-radius:4px;font-size:12px;font-weight:700;cursor:pointer;min-width:90px}
+.us:focus{outline:none;border-color:var(--accent)}
+.uC1{border-color:#1A56E8!important;background:#EFF6FF!important;color:#1A56E8!important}
+.uC2{border-color:#1E40AF!important;background:#EFF6FF!important;color:#1E40AF!important}
+.uC3{border-color:#7C3AED!important;background:#F5F3FF!important;color:#7C3AED!important}
+.uM1,.uM2,.uM3,.uM4{border-color:#0D9488!important;background:#F0FDFA!important;color:#0D9488!important}
+.uPROVINCIA{border-color:#9333EA!important;background:#F3E8FF!important;color:#9333EA!important}
+.vs{padding:4px 6px;border:1.5px solid var(--border);border-radius:4px;font-size:11.5px;font-weight:700;cursor:pointer;min-width:80px}
+.vv1{border-color:#F59E0B!important;background:#FFFBEB!important;color:#92400E!important}
+.vv2{border-color:#06B6D4!important;background:#ECFEFF!important;color:#0E7490!important}
+
+/* ══ RESUMEN MOTOR ══════════════════════════════════════ */
+.rg{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:10px;margin-bottom:18px}
+.rc{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:12px;display:flex;flex-direction:column;gap:5px}
+.rh{display:flex;align-items:center;justify-content:space-between}
+.rl{font-size:12px;font-weight:700}
+.rm{display:flex;justify-content:space-between;font-size:12px}
+.rv{font-weight:700;font-variant-numeric:tabular-nums}
+.pb{background:#E2E8F0;border-radius:4px;height:5px;overflow:hidden;margin-top:3px}
+.pf{height:100%;border-radius:4px;transition:width .4s}
+
+/* ══ MOTOR TOOLBAR ══════════════════════════════════════ */
+.mtb{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.si{padding:7px 11px;border:1.5px solid var(--border);border-radius:var(--r);font-size:13px;width:210px;font-family:inherit}
+.si:focus{outline:none;border-color:var(--accent)}
+.fs{padding:7px 9px;border:1.5px solid var(--border);border-radius:var(--r);font-size:12.5px;font-family:inherit}
+.fs:focus{outline:none;border-color:var(--accent)}
+
+/* ══ RUTA CARD ══════════════════════════════════════════ */
+.ruta-c{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);margin-bottom:14px;box-shadow:var(--shadow)}
+.ruta-h{padding:12px 16px;display:flex;align-items:flex-start;justify-content:space-between;border-bottom:1px solid var(--border)}
+.ruta-n{font-size:14px;font-weight:800}
+.ruta-m{font-size:11.5px;color:var(--ink-soft);display:flex;gap:14px;flex-wrap:wrap;margin-top:3px}
+
+/* ══ KPI ══════════════════════════════════════════════════ */
+.kg{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.kt{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:12px;text-align:center;position:relative;overflow:hidden}
+.kt::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent)}
+.kt.ok::before{background:#16A34A}.kt.warn::before{background:#D97706}.kt.danger::before{background:#DC2626}
+.kv{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-1px}
+.kl{font-size:11px;color:var(--ink-soft);margin-top:2px}
+.km{font-size:11px;margin-top:4px}
+.ki{width:100%;padding:5px;border:1.5px solid var(--border);border-radius:4px;font-size:13px;font-weight:700;text-align:center;margin-top:5px;font-family:monospace}
+.ki:focus{outline:none;border-color:var(--accent)}
+
+/* ══ MODAL ══════════════════════════════════════════════ */
+.mo{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;pointer-events:none;transition:opacity .2s}
+.mo.open{opacity:1;pointer-events:all}
+.md{background:#fff;border-radius:12px;width:100%;max-width:500px;box-shadow:var(--shadow-lg);overflow:hidden;transform:translateY(16px);transition:transform .2s}
+.mo.open .md{transform:translateY(0)}
+.mh{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.mh h3{font-size:15px;font-weight:700}
+.mc-btn{background:none;border:none;font-size:20px;cursor:pointer;color:var(--ink-soft)}
+.mb{padding:18px;display:grid;gap:10px;max-height:70vh;overflow-y:auto}
+.mf{padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px}
+
+/* ══ TOAST ══════════════════════════════════════════════ */
+.toast{position:fixed;bottom:20px;right:20px;z-index:300;padding:11px 16px;border-radius:var(--r);font-size:13px;font-weight:600;box-shadow:var(--shadow-lg);transform:translateY(80px);transition:transform .3s;max-width:300px}
+.toast.show{transform:translateY(0)}
+.toast.success{background:#166534;color:#fff}
+.toast.error{background:#991B1B;color:#fff}
+.toast.info{background:#1E40AF;color:#fff}
+
+/* ══ PAGE FOOTER ══════════════════════════════════════════ */
+.pg-footer{text-align:center;padding:14px;font-size:11px;color:#aaa;margin-top:10px}
+
+/* ══ PRINT ══════════════════════════════════════════════ */
+@media print{
+  .hdr,.nav,.mtb,.iz,.btn,.ph,.rg,.pills,.sec:not(.active),.pg-footer{display:none!important}
+  .main{padding:0}.tb-wrap{border:none}
+  .ruta-c{break-inside:avoid;box-shadow:none;border:1px solid #ddd}
+  body{background:#fff}
+}
+
+/* ══ RESPONSIVE ══════════════════════════════════════════ */
+@media(max-width:768px){
+  .main{padding:12px 10px}
+  .ugrid{grid-template-columns:1fr}
+  .mtb{gap:6px}.si{width:100%}
+  .import-grid{grid-template-columns:1fr}
+  .kg{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:480px){
+  .frow{grid-template-columns:1fr}
+  .pills{gap:8px}
+}
+</style>
+</head>
+<body>
+
+<!-- ══ HEADER ══════════════════════════════════════════════ -->
+<header class="hdr">
+  <img src="data:image/png;base64,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" class="hdr-logo" alt="Grupo Merpes">
+  <div class="hdr-text">
+    <h1>Control de Flota y Optimización de Rutas</h1>
+    <p>Grupo Merpes S.A.C. &mdash; Jefatura de Administración y Logística &mdash; Lima, Perú</p>
+  </div>
+  <div class="hdr-badge" id="hdr-date">Cargando...</div>
+</header>
+
+<!-- ══ NAV ════════════════════════════════════════════════ -->
+<nav class="nav" id="main-nav">
+  <button class="nav-btn active" onclick="showTab('flota',this)">🚛 Flota del Día</button>
+  <button class="nav-btn" onclick="showTab('import',this)">📥 Carga de Datos</button>
+  <button class="nav-btn" onclick="showTab('motor',this)">⚙️ Motor de Ruteo</button>
+  <button class="nav-btn" onclick="showTab('rutas',this)">🗺️ Hojas de Ruta</button>
+  <button class="nav-btn" onclick="showTab('provincias',this)">🌎 Provincias</button>
+  <button class="nav-btn" onclick="showTab('rechazos',this)">📉 Rechazos</button>
+  <button class="nav-btn" onclick="showTab('kpi',this)">📊 KPI del Día</button>
+</nav>
+
+<main class="main">
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- PESTAÑA 1: FLOTA DEL DÍA                             -->
+<!-- ══════════════════════════════════════════════════════ -->
+<section class="sec active" id="sec-flota">
+  <div class="ph">
+    <h1>Configuración de Flota — Corte de 8 PM</h1>
+    <p>Choferes y motorizados rotan entre unidades. Un motorizado con brevete A-IIa puede asignarse a un camión. Agregue o elimine unidades según el día.</p>
+  </div>
+
+  <!-- Pills resumen -->
+  <div class="pills" id="fleet-pills"></div>
+
+  <!-- CAMIONES -->
+  <div class="fl-sec">
+    <div class="fl-sec-hdr">
+      <div class="fl-sec-title"><span class="big-icon">🚛</span><span>Camiones</span></div>
+      <button class="btn-add-cam" onclick="addUnit('cam')">+ Agregar camión</button>
+    </div>
+    <div class="ugrid" id="grid-cam"></div>
+  </div>
+
+  <!-- MOTORIZADOS -->
+  <div class="fl-sec">
+    <div class="fl-sec-hdr">
+      <div class="fl-sec-title"><span class="big-icon">🏍️</span><span>Motorizados</span></div>
+      <button class="btn-add-mot" onclick="addUnit('mot')">+ Agregar moto</button>
+    </div>
+    <div class="ugrid" id="grid-mot"></div>
+  </div>
+
+  <!-- Resumen capacidad -->
+  <div class="card">
+    <div class="ch">
+      <span class="ct">📊 Capacidad Total Activa</span>
+      <button class="btn btn-s btn-sm" onclick="resetFlota()">↺ Restaurar defaults</button>
+    </div>
+    <div class="cb"><div class="rg" id="fleet-res"></div></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- PESTAÑA 2: CARGA DE DATOS (6 reportes)               -->
+<!-- ══════════════════════════════════════════════════════ -->
+<section class="sec" id="sec-import">
+  <div class="ph">
+    <h1>Carga de Datos — 6 Reportes</h1>
+    <p>Cada área sube o pega su reporte antes de las 8 PM. Los datos se integran automáticamente al Motor de Ruteo.</p>
+  </div>
+
+  <div class="import-grid">
+
+    <!-- 1. ESPE -->
+    <div class="card">
+      <div class="ch" style="background:#EFF6FF;border-left:4px solid #1A56E8;border-radius:8px 8px 0 0">
+        <div>
+          <div class="ct" style="color:#1A56E8">① ESPE — Cabeceras de Pedidos</div>
+          <div style="font-size:11px;color:#3D5166;margin-top:2px">Fuente: SIG · Responsable: Facturación</div>
+        </div>
+        <span id="espe-c" style="font-size:11px;color:var(--ink-soft);white-space:nowrap">Sin datos</span>
+      </div>
+      <div class="cb">
+        <div class="resp-badge">👤 Facturación — SIG → Reportes → Estado de Documentos · Hora límite: <strong style="color:#DC2626">8 PM</strong></div>
+        <div class="iz" id="iz-espe" onclick="document.getElementById('fi-espe').click()"
+          ondragover="dov(event,'iz-espe')" ondragleave="dlv('iz-espe')" ondrop="drp(event,'espe')">
+          <div class="iz-icon">📋</div><div class="iz-title">Soltar archivo ESPE aquí</div>
+          <div class="iz-sub">CSV o TSV — Estado, Número, Distrito, Teléfono, Monto</div>
+        </div>
+        <input type="file" id="fi-espe" style="display:none" accept=".csv,.tsv,.txt" onchange="lf(event,'espe')">
+        <textarea class="paste" id="pa-espe" rows="3" placeholder="O pegar datos copiados desde Excel (TSV)..."></textarea>
+        <button class="btn btn-p btn-sm" style="margin-top:6px" onclick="pp('espe')">⚡ Procesar</button>
+        <div id="msg-espe"></div>
+      </div>
+    </div>
+
+    <!-- 2. RPTR -->
+    <div class="card">
+      <div class="ch" style="background:#F5F3FF;border-left:4px solid #7C3AED;border-radius:8px 8px 0 0">
+        <div>
+          <div class="ct" style="color:#7C3AED">② RPTR — Detalle de Ítems</div>
+          <div style="font-size:11px;color:#3D5166;margin-top:2px">Fuente: SIG · Responsable: Almacén</div>
+        </div>
+        <span id="rptr-c" style="font-size:11px;color:var(--ink-soft);white-space:nowrap">Sin datos</span>
+      </div>
+      <div class="cb">
+        <div class="resp-badge">👤 Almacén — SIG → Reportes → Pedidos Detallados · Hora límite: <strong style="color:#DC2626">8 PM</strong></div>
+        <div class="iz" id="iz-rptr" onclick="document.getElementById('fi-rptr').click()"
+          ondragover="dov(event,'iz-rptr')" ondragleave="dlv('iz-rptr')" ondrop="drp(event,'rptr')">
+          <div class="iz-icon">📦</div><div class="iz-title">Soltar archivo RPTR aquí</div>
+          <div class="iz-sub">CSV o TSV — Número, Código SKU, Unidades, Placa, Chofer</div>
+        </div>
+        <input type="file" id="fi-rptr" style="display:none" accept=".csv,.tsv,.txt" onchange="lf(event,'rptr')">
+        <textarea class="paste" id="pa-rptr" rows="3" placeholder="O pegar datos TSV del RPTR..."></textarea>
+        <button class="btn btn-p btn-sm" style="margin-top:6px" onclick="pp('rptr')">⚡ Procesar</button>
+        <div id="msg-rptr"></div>
+      </div>
+    </div>
+
+    <!-- 3. BASE DIARIA -->
+    <div class="card">
+      <div class="ch" style="background:#F0FDF4;border-left:4px solid #16A34A;border-radius:8px 8px 0 0">
+        <div>
+          <div class="ct" style="color:#16A34A">③ Base Diaria</div>
+          <div style="font-size:11px;color:#3D5166;margin-top:2px">Fuente: Drive manual · Varios usuarios</div>
+        </div>
+        <span id="base-c" style="font-size:11px;color:var(--ink-soft);white-space:nowrap">Sin datos</span>
+      </div>
+      <div class="cb">
+        <div class="resp-badge">👥 Varios — Drive compartido · Hora límite: <strong style="color:#DC2626">8 PM</strong></div>
+        <div class="iz" id="iz-base" onclick="document.getElementById('fi-base').click()"
+          ondragover="dov(event,'iz-base')" ondragleave="dlv('iz-base')" ondrop="drp(event,'base')">
+          <div class="iz-icon">📄</div><div class="iz-title">Soltar Base Diaria aquí</div>
+          <div class="iz-sub">CSV o TSV — Pedido, Estado, Fecha, Canal, Monto</div>
+        </div>
+        <input type="file" id="fi-base" style="display:none" accept=".csv,.tsv,.txt" onchange="lf(event,'base')">
+        <textarea class="paste" id="pa-base" rows="3" placeholder="O pegar datos de la Base Diaria..."></textarea>
+        <button class="btn btn-p btn-sm" style="margin-top:6px" onclick="pp('base')">⚡ Procesar</button>
+        <div id="msg-base"></div>
+      </div>
+    </div>
+
+    <!-- 4. GESTIÓN DE CONFIRMACIONES -->
+    <div class="card">
+      <div class="ch" style="background:#FFF7ED;border-left:4px solid #F7941D;border-radius:8px 8px 0 0">
+        <div>
+          <div class="ct" style="color:#C2410C">④ Gestión de Confirmaciones</div>
+          <div style="font-size:11px;color:#3D5166;margin-top:2px">Fuente: Drive manual · Herlinda Nizama</div>
+        </div>
+        <span id="conf-c" style="font-size:11px;color:var(--ink-soft);white-space:nowrap">Sin datos</span>
+      </div>
+      <div class="cb">
+        <div class="resp-badge">👤 <strong>Herlinda Nizama</strong> — Área de Confirmaciones · Límite: <strong style="color:#DC2626">8 PM</strong></div>
+        <div class="iz" id="iz-conf" onclick="document.getElementById('fi-conf').click()"
+          ondragover="dov(event,'iz-conf')" ondragleave="dlv('iz-conf')" ondrop="drp(event,'conf')">
+          <div class="iz-icon">📞</div><div class="iz-title">Soltar Gestión de Confirmaciones aquí</div>
+          <div class="iz-sub">CSV o TSV — Pedido, Estado, Detalle horario, Distrito, Teléfono</div>
+        </div>
+        <input type="file" id="fi-conf" style="display:none" accept=".csv,.tsv,.txt" onchange="lf(event,'conf')">
+        <textarea class="paste" id="pa-conf" rows="3" placeholder="O pegar datos de Confirmaciones..."></textarea>
+        <button class="btn btn-p btn-sm" style="margin-top:6px" onclick="pp('conf')">⚡ Procesar</button>
+        <div id="msg-conf"></div>
+      </div>
+    </div>
+
+    <!-- 5. REPORTE DE TRÁNSITO -->
+    <div class="card">
+      <div class="ch" style="background:#F0FDFA;border-left:4px solid #0D9488;border-radius:8px 8px 0 0">
+        <div>
+          <div class="ct" style="color:#0D9488">⑤ Reporte de Tránsito</div>
+          <div style="font-size:11px;color:#3D5166;margin-top:2px">Fuente: Drive manual · Cristhian Revilla</div>
+        </div>
+        <span id="trans-c" style="font-size:11px;color:var(--ink-soft);white-space:nowrap">Sin datos</span>
+      </div>
+      <div class="cb">
+        <div class="resp-badge">👤 <strong>Cristhian Revilla</strong> — Área de Distribución · Límite: <strong style="color:#DC2626">8 PM</strong></div>
+        <div class="iz" id="iz-trans" onclick="document.getElementById('fi-trans').click()"
+          ondragover="dov(event,'iz-trans')" ondragleave="dlv('iz-trans')" ondrop="drp(event,'trans')">
+          <div class="iz-icon">🚚</div><div class="iz-title">Soltar Reporte de Tránsito aquí</div>
+          <div class="iz-sub">CSV o TSV — Pedido, Unidad, Vuelta, Estado, Observación</div>
+        </div>
+        <input type="file" id="fi-trans" style="display:none" accept=".csv,.tsv,.txt" onchange="lf(event,'trans')">
+        <textarea class="paste" id="pa-trans" rows="3" placeholder="O pegar datos del Reporte de Tránsito..."></textarea>
+        <button class="btn btn-p btn-sm" style="margin-top:6px" onclick="pp('trans')">⚡ Procesar</button>
+        <div id="msg-trans"></div>
+      </div>
+    </div>
+
+    <!-- 6. REPORTE MYBEES -->
+    <div class="card">
+      <div class="ch" style="background:#FDF4FF;border-left:4px solid #9333EA;border-radius:8px 8px 0 0">
+        <div>
+          <div class="ct" style="color:#9333EA">⑥ Reporte Mybees</div>
+          <div style="font-size:11px;color:#3D5166;margin-top:2px">Fuente: Drive manual · Omar Benavides</div>
+        </div>
+        <span id="myb-c" style="font-size:11px;color:var(--ink-soft);white-space:nowrap">Sin datos</span>
+      </div>
+      <div class="cb">
+        <div class="resp-badge">👤 <strong>Omar Benavides</strong> — Área de Distribución · Límite: <strong style="color:#DC2626">8 PM</strong></div>
+        <div class="iz" id="iz-myb" onclick="document.getElementById('fi-myb').click()"
+          ondragover="dov(event,'iz-myb')" ondragleave="dlv('iz-myb')" ondrop="drp(event,'myb')">
+          <div class="iz-icon">🐝</div><div class="iz-title">Soltar Reporte Mybees aquí</div>
+          <div class="iz-sub">CSV o TSV — Pedido, Canal Mybees, Cliente, Distrito, Estado</div>
+        </div>
+        <input type="file" id="fi-myb" style="display:none" accept=".csv,.tsv,.txt" onchange="lf(event,'myb')">
+        <textarea class="paste" id="pa-myb" rows="3" placeholder="O pegar datos del Reporte Mybees..."></textarea>
+        <button class="btn btn-p btn-sm" style="margin-top:6px" onclick="pp('myb')">⚡ Procesar</button>
+        <div id="msg-myb"></div>
+      </div>
+    </div>
+
+    <!-- Manual -->
+    <div class="card">
+      <div class="ch" style="background:#F8FAFC;border-left:4px solid #475569;border-radius:8px 8px 0 0">
+        <div class="ct">✏️ Agregar Pedido Manual</div>
+      </div>
+      <div class="cb">
+        <div style="display:grid;gap:8px">
+          <div class="frow">
+            <div class="field"><label>N° Pedido *</label><input id="mn" placeholder="Número pedido"></div>
+            <div class="field"><label>Canal</label><input id="mc" placeholder="FNB/GSD/B2B/Mybees"></div>
+          </div>
+          <div class="field"><label>Cliente *</label><input id="mcl" placeholder="Nombre completo"></div>
+          <div class="frow">
+            <div class="field"><label>Teléfono</label><input id="mt" placeholder="9XXXXXXXX"></div>
+            <div class="field"><label>Distrito *</label><select id="mdi"><option value="">Seleccionar...</option></select></div>
+          </div>
+          <div class="field"><label>Dirección</label><input id="mdr" placeholder="Av./Jr. + Número"></div>
+          <div class="frow">
+            <div class="field"><label>SKU</label><input id="ms" placeholder="Código SKU" oninput="lsku()"></div>
+            <div class="field"><label>Und.</label><input id="mu" type="number" value="1" min="1"></div>
+          </div>
+          <div class="field"><label>Producto</label><input id="mp" placeholder="Auto con SKU"></div>
+          <div class="frow">
+            <div class="field"><label>Peso kg</label><input id="mpk" type="number" step="0.1"></div>
+            <div class="field"><label>S/.</label><input id="mpr" type="number" step="0.01"></div>
+          </div>
+          <div class="field"><label>Ventana horaria</label>
+            <select id="mv">
+              <option>MAÑANA (hasta 12M)</option><option>MAÑANA (hasta 1PM)</option>
+              <option selected>TARDE (hasta 2PM)</option><option>TARDE (hasta 3PM)</option>
+              <option>TARDE (desde 1PM)</option><option>TARDE (desde 2PM)</option>
+              <option>POR COORDENADAS</option><option>LLAMAR 30min antes</option>
+            </select>
+          </div>
+          <button class="btn btn-p" onclick="addM()">➕ Agregar al Motor</button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /import-grid -->
+
+  <!-- Estado integración -->
+  <div class="card" style="margin-top:14px">
+    <div class="ch"><span class="ct">📊 Estado de Integración de Reportes</span></div>
+    <div class="cb">
+      <div id="int-status" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- PESTAÑA 3: MOTOR DE RUTEO                            -->
+<!-- ══════════════════════════════════════════════════════ -->
+<section class="sec" id="sec-motor">
+  <div class="ph"><h1>Motor de Ruteo — Plan del Día</h1><p>Asigne unidad y vuelta a cada pedido. Capacidad se actualiza en tiempo real.</p></div>
+  <div id="motor-res" class="rg"></div>
+  <div class="mtb">
+    <input class="si" id="ms-in" placeholder="🔍 Pedido, cliente, distrito..." oninput="renderMotor()">
+    <select class="fs" id="mf-zona" onchange="renderMotor()">
+      <option value="">Todas las zonas</option>
+      <option>NORTE</option><option>SUR</option><option>ESTE</option>
+      <option>CALLAO</option><option>CENTRO-SUR</option><option>PROVINCIA</option>
+    </select>
+    <select class="fs" id="mf-und" onchange="renderMotor()">
+      <option value="">Todas las unidades</option>
+      <option>SIN ASIGNAR</option><option>C1</option><option>C2</option><option>C3</option>
+      <option>M1</option><option>M2</option><option>M3</option><option>M4</option><option>PROVINCIA</option>
+    </select>
+    <button class="btn btn-s btn-sm" onclick="autoAsig()">🤖 Auto-asignar</button>
+    <button class="btn btn-g btn-sm" onclick="expPlan()">📤 Exportar CSV</button>
+    <button class="btn btn-d btn-sm" onclick="clearM()">🗑 Limpiar todo</button>
+    <span id="mcnt" style="font-size:12px;color:var(--ink-soft);margin-left:auto"></span>
+  </div>
+  <div class="card"><div class="tb-wrap"><table>
+    <thead><tr>
+      <th>#</th><th>Pedido</th><th>Canal</th><th>Zona</th><th>Distrito</th>
+      <th>Cliente</th><th>Teléfono</th><th>Ventana</th><th>Producto</th>
+      <th>Und</th><th>Kg</th><th>m³</th><th>S/.</th>
+      <th style="background:#DCFCE7;color:#166534">Unidad ✏️</th>
+      <th style="background:#DBEAFE;color:#1E40AF">Vuelta ✏️</th>
+      <th>Estado</th><th>Fuente</th><th>Acciones</th>
+    </tr></thead>
+    <tbody id="motor-body"></tbody>
+  </table></div></div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- PESTAÑA 4: HOJAS DE RUTA                             -->
+<!-- ══════════════════════════════════════════════════════ -->
+<section class="sec" id="sec-rutas">
+  <div class="ph"><h1>Hojas de Ruta por Unidad</h1><p>Imprima y entregue a cada conductor antes de salir.</p></div>
+  <div class="mtb">
+    <button class="btn btn-s" onclick="window.print()">🖨️ Imprimir todo</button>
+  </div>
+  <div id="rutas-cont"></div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- PESTAÑA 5: PROVINCIAS                                -->
+<!-- ══════════════════════════════════════════════════════ -->
+<section class="sec" id="sec-provincias">
+  <div class="ph"><h1>Pedidos a Provincia</h1><p>Dpto. ≠ Lima / Callao → Enotria · Toscano · Meta Logistic (5–10 días hábiles)</p></div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+    <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800" id="pv-cnt">0</div><div style="font-size:12px;color:var(--ink-soft)">Pedidos</div></div>
+    <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800" id="pv-kg">0 kg</div><div style="font-size:12px;color:var(--ink-soft)">Peso total</div></div>
+    <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800" id="pv-sol">S/ 0</div><div style="font-size:12px;color:var(--ink-soft)">Monto total</div></div>
+  </div>
+  <div class="card"><div class="tb-wrap"><table>
+    <thead><tr><th>Pedido</th><th>Canal</th><th>Cliente</th><th>Tel.</th><th>Depto.</th><th>Distrito</th><th>Dirección</th><th>Producto</th><th>Kg</th><th>S/.</th>
+    <th style="background:#F3E8FF;color:#9333EA">Operador ✏️</th><th style="background:#DCFCE7;color:#166534">Estado ✏️</th></tr></thead>
+    <tbody id="pv-body"></tbody>
+  </table></div></div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- PESTAÑA 6: RECHAZOS                                  -->
+<!-- ══════════════════════════════════════════════════════ -->
+<section class="sec" id="sec-rechazos">
+  <div class="ph"><h1>Control de Rechazos</h1><p>Meta: bajar de 8% a &lt;4% en 60 días.</p></div>
+  <div class="kg" style="margin-bottom:14px">
+    <div class="kt danger"><div class="kv" id="r-tot">0</div><div class="kl">Rechazos hoy</div></div>
+    <div class="kt" id="r-pct-t"><div class="kv" id="r-pct">0%</div><div class="kl">% despachos</div><div class="km" style="color:var(--ink-soft)">Meta &lt;8%</div></div>
+    <div class="kt warn"><div class="kv" id="r-aus">0</div><div class="kl">Cliente ausente</div></div>
+    <div class="kt warn"><div class="kv" id="r-hor">0</div><div class="kl">Horario comercial</div></div>
+    <div class="kt"><div class="kv" id="r-prod">0</div><div class="kl">Prod. incorrecto</div></div>
+    <div class="kt ok"><div class="kv" id="r-resc">0</div><div class="kl">Rescatados</div></div>
+  </div>
+  <div class="card" style="margin-bottom:14px"><div class="ch"><span class="ct">➕ Registrar Rechazo</span></div>
+  <div class="cb"><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:8px;align-items:end">
+    <div class="field"><label>N° Pedido</label><input id="rn" placeholder="Número"></div>
+    <div class="field"><label>Cliente</label><input id="rcl" placeholder="Nombre"></div>
+    <div class="field"><label>Distrito</label><input id="rdi" placeholder="Distrito"></div>
+    <div class="field"><label>Canal</label><input id="rca" placeholder="FNB/GSD/etc."></div>
+    <div class="field"><label>Unidad</label><select id="run"><option>C1</option><option>C2</option><option>C3</option><option>M1</option><option>M2</option><option>M3</option><option>M4</option></select></div>
+    <div class="field"><label>Motivo</label><select id="rmo">
+      <option>Cliente ausente</option><option>Horario condicionado por comercial</option>
+      <option>Producto incorrecto</option><option>Cliente desconoce pedido</option>
+      <option>Dirección incorrecta</option><option>Pedido duplicado</option>
+      <option>Cambio en pedido</option><option>Desistió de compra</option>
+      <option>Producto en mal estado</option><option>Error logístico</option><option>Otro</option>
+    </select></div>
+    <div class="field"><label>¿Reprogramar?</label><select id="rrp"><option>Sí</option><option>No</option></select></div>
+    <div class="field"><label>Obs.</label><input id="rob" placeholder="Detalle adicional"></div>
+    <button class="btn btn-d" style="align-self:end" onclick="addR()">Registrar</button>
+  </div></div></div>
+  <div class="card"><div class="ch"><span class="ct">Registro del día</span><button class="btn btn-s btn-sm" onclick="expR()">📤 CSV</button></div>
+  <div class="tb-wrap"><table><thead><tr>
+    <th>#</th><th>Pedido</th><th>Cliente</th><th>Distrito</th><th>Canal</th>
+    <th>Unidad</th><th>Motivo</th><th>Reprog.</th><th>Obs.</th><th>¿Rescatado?</th><th>×</th>
+  </tr></thead><tbody id="rb"></tbody></table></div></div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- PESTAÑA 7: KPI DEL DÍA                               -->
+<!-- ══════════════════════════════════════════════════════ -->
+<section class="sec" id="sec-kpi">
+  <div class="ph"><h1>KPI Logístico del Día</h1><p>Complete al cierre del turno (9 PM). Semáforo automático.</p></div>
+  <div id="kpi-cont"></div>
+</section>
+
+</main>
+
+<div class="pg-footer">Grupo Merpes Perú S.A.C. &nbsp;·&nbsp; Jefatura de Administración y Logística &nbsp;·&nbsp; Lima, Perú</div>
+
+<!-- Modal editar pedido -->
+<div class="mo" id="mo-edit">
+  <div class="md">
+    <div class="mh"><h3>✏️ Editar Pedido</h3><button class="mc-btn" onclick="cmo()">×</button></div>
+    <div class="mb" id="mo-body"></div>
+    <div class="mf"><button class="btn btn-s" onclick="cmo()">Cancelar</button><button class="btn btn-p" onclick="savE()">Guardar</button></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════
+// DATOS EMBEBIDOS
+// ══════════════════════════════════════════════
+const PESOS={"12000231":{"p":2.2,"m":0.17034,"d":"SILLAS ZEN - LOGO CRISTAL","l":"SILLAS"},"12000223":{"p":8.36,"m":0.48189,"d":"JUEGO DE MESAS Y SILLAS (1 MESA CUADRADA KINA + 4 SILLAS ZEN","l":"JUEGO"},"10000139":{"p":26.4,"m":0.25806,"d":"COCINA INDURAMA FONTANA GRIS 4H","l":"COCINA"},"10000622":{"p":44.4,"m":0.54855,"d":"LAVADORA LG WT19BVTB 19KG NEGRO CLARO","l":"LAVADORA"},"12000305":{"p":0.8,"m":0.05434,"d":"BANCO PUBLICITARIO - LOGO PILSEN","l":"BANCO"},"10000843":{"p":20.4,"m":0.20601,"d":"TELEVISOR SAMSUNG QLED QN65Q6FAAGXPE 65\" UHD/4K SMART HUB TI","l":"TELEVISOR"},"10000593":{"p":92.0,"m":1.32412,"d":"REFRIGERADORA LG SIDE BY SIDE 509LT NEGRA GS51MPD","l":"REFRIGERADORA"},"10000923":{"p":39.0,"m":0.55704,"d":"LAVADORA LG WT16OBVTB 16KG NEGRO","l":"LAVADORA"},"10000892":{"p":45.0,"m":0.59451,"d":"LAVADORA SAMSUNG 19KG NEGRO WA80F19S8BPE AI WASH ECOBUBBLE","l":"LAVADORA"},"10000918":{"p":32.8,"m":0.38272,"d":"REFRIGERADORA MIRAY 172L RM-184H EURO FRIO","l":"REFRIGERADORA"},"10000156":{"p":52.0,"m":0.56014,"d":"COCINA INDURAMA CIRELLA ZAFIRO 5H","l":"COCINA"},"10000294":{"p":92.0,"m":1.33809,"d":"REFRIGERADORA LG SIDE BY SIDE 509L PLATEADA LS51BPP","l":"REFRIGERADORA"},"10000126":{"p":4.4,"m":0.02558,"d":"TERMA JASA INSTANTANEA DE TIRO NATURAL 5.5 LIT/MIN GN","l":"TERMA"},"10000760":{"p":89.4,"m":1.23345,"d":"REFRIGERADORA INDURAMA RI-795DI SIDE BY SIDE NO FROST 529L","l":"REFRIGERADORA"},"10000168":{"p":42.0,"m":0.38362,"d":"LAVADORA INDURAMA LRI-13BLA BLANCA","l":"LAVADORA"},"10000135":{"p":39.0,"m":0.33488,"d":"SECADORA A GAS INDURAMA 7KG SEC-7BLG","l":"SECADORA"},"10000581":{"p":53.8,"m":0.53613,"d":"LAVADORA MABE 16KG LMA6120WDGBB0 DIAMOND GREY","l":"LAVADORA"},"15000006":{"p":0.9,"m":0.0078,"d":"NIPLE 1/2 X  1 1/2 GALVANIZADO","l":"NIPLE"},"10000658":{"p":48.0,"m":0.52272,"d":"COCINA MABE 6H CMP3020FN1 GN","l":"COCINA"},"12000017":{"p":1.0,"m":0.042,"d":"ALMOHADA PREMIUM HOTELERA 100% ALGODÓN","l":"ALMOHADA"},"12000015":{"p":48.0,"m":1.21176,"d":"COLCHON PARAISO POCKET STAR KING+2ALM+1PROT","l":"COLCHON"},"10000536":{"p":41.0,"m":0.60056,"d":"REFRIGERADORA INDURAMA RI-389DI 246L","l":"REFRIGERADORA"},"33001070":{"p":130.0,"m":4.692,"d":"TRIMOTO DE PASAJERO ELECTRICA HS800Ai 60V20AH VERDE PASTEL C","l":"TRIMOTO"},"10000024":{"p":49.0,"m":0.5658,"d":"COCINA INDURAMA PARMA 6H","l":"COCINA"},"10000710":{"p":20.0,"m":0.22271,"d":"TELEVISOR LG 65UA7300PSB UHD/4K SMART Thinq AI C/MAGIC REMOT","l":"TELEVISOR"},"10000180":{"p":11.2,"m":0.0877,"d":"TERMA JASA INSTANTANEA DE TIRO FORZADO 10LIT/GALON + KIT DE ","l":"TERMA"},"12000242":{"p":18.2,"m":0.13546,"d":"SILLA GAMER PROGEAR ZONE INCLINACIÓN 135° MAX. 120KG TAPIZ C","l":"SILLA"},"10000136":{"p":5.31,"m":0.03136,"d":"TERMA JASA INSTANTANEA 5.5 LT + KIT INSTALACION","l":"TERMA"},"33001068":{"p":1.0,"m":0.0173,"d":"CASCO ECONOMICO BRUNO","l":"CASCO"},"10000722":{"p":19.6,"m":0.20766,"d":"TELEVISOR SAMSUNG UN65U8000FGXPE 65\" UHD/4K SMART TIZEN","l":"TELEVISOR"},"12000228":{"p":3.4,"m":0.04499,"d":"MESA CUADRADA KINA LOGO PILSEN","l":"MESA"},"32000306":{"p":0.43,"m":0.00494,"d":"PELOTA FIFA WC 26 TRIONDA CLUB JD8028","l":"PELOTA"},"12000010":{"p":31.4,"m":0.70966,"d":"COLCHON PARAISO SU MAJESTAD 2.0 PLZ+2ALM+1PROT","l":"COLCHON"},"10000261":{"p":61.8,"m":0.83776,"d":"REFRIGERADORA LG 314 LT GT31WPP","l":"REFRIGERADORA"},"10000075":{"p":82.2,"m":1.10709,"d":"REFRIGERADORA INDURAMA RI-769 428L SIDE BY SIDE","l":"REFRIGERADORA"},"12000298":{"p":32.6,"m":0.7695,"d":"COLCHON PARAISO ROYAL PRINCE 2.0 PL+2ALM VISCO","l":"COLCHON"},"15000090":{"p":1.4,"m":0.00347,"d":"VASO CRISTOBAL GDE.LLANO C/LOGO CERVEZA CRISTAL","l":"VASO"},"12000250":{"p":1.6,"m":1.02375,"d":"ROPERO DESARMABLE 130*45*175CM COLOR SUTIDOS COD.88130","l":"ROPERO"},"10000602":{"p":30.0,"m":0.30576,"d":"COCINA MABE 4H EMP5120GP2 GN","l":"COCINA"},"10000504":{"p":5.6,"m":0.04741,"d":"FREIDORA DE AIRE DIGITAL MERTEC 6.5 LITROS MT-023SV","l":"FREIDORA"},"10000388":{"p":32.8,"m":0.42766,"d":"CONGELADORA MABE 198L BLANCO CHM200PB3","l":"CONGELADORA"},"12000138":{"p":95.0,"m":2.992,"d":"JUEGO DE SALA SECCIONAL MODELO OSMAN - MEDIDA ESTANDAR - ARG","l":"JUEGO"},"10000349":{"p":44.2,"m":0.58824,"d":"REFRIGERADORA MABE NO FROST 230L GRAFITO  - RMA230PJPG","l":"REFRIGERADORA"},"33000760":{"p":110.0,"m":1.44704,"d":"MOTO SONLINK SL150T - 11 NEGRO","l":"MOTO"},"10000515":{"p":57.2,"m":0.56697,"d":"COCINA  INDURAMA MONTECARLO ZAFIRO CROMA 5H","l":"COCINA"},"10000752":{"p":65.0,"m":0.4698,"d":"COCINA SGA 6H PLATINUM 6 90 DIGITAL","l":"COCINA"},"12000246":{"p":2.41,"m":1.4,"d":"BOX TARIMA PREMIUM CHARCOAL KING","l":"BOX"},"15000047":{"p":3.6,"m":0.0372,"d":"WOK - PARRILLA A GAS SUPER GRILLS","l":"WOK"},"10000501":{"p":1.4,"m":0.00655,"d":"SANDWICHERA  GRILL MERTEC MT-020S","l":"SANDWICHERA"},"10000469":{"p":61.6,"m":0.90102,"d":"REFRIGERADORA SAMSUNG SILVER 341LT RT35DG5720S9/PE","l":"REFRIGERADORA"},"10000804":{"p":63.4,"m":0.90015,"d":"REFRIGERADORA HISENSE 379LT TOP MOUNT RT3N375NMCA GRIS","l":"REFRIGERADORA"},"12000011":{"p":20.2,"m":0.52858,"d":"COLCHON PARAISO PREMIUM MEDALLON ERGOSOFT 1.5 PL+1ALM+1PROT","l":"COLCHON"},"10000850":{"p":41.2,"m":0.42748,"d":"REFRIGERADORA HISENSE 205LT TOP MOUNT FROST RD267H GRIS","l":"REFRIGERADORA"},"10000912":{"p":14.6,"m":0.133,"d":"TELEVISOR SAMSUNG QLED QN55Q6FAAGXPE 55\" UHD/4K SMART HUB TI","l":"TELEVISOR"},"10000851":{"p":53.0,"m":0.48728,"d":"LAVADORA MIDEA 17 KG CARGA SUPERIOR MA200W170/G-PE","l":"LAVADORA"},"10000913":{"p":27.0,"m":0.26163,"d":"COCINA A GAS MIRAY RUBI PLUS GLP 4H COLOR INOX GLP","l":"COCINA"},"10000483":{"p":41.2,"m":0.46451,"d":"COCINA INDURAMA GRANADA CROMA ZFO 4H GN","l":"COCINA"},"10000741":{"p":19.2,"m":0.232,"d":"TELEVISOR TCL 65V6C 65\" UHD/4K SMART GOOGLE TV","l":"TELEVISOR"},"10000532":{"p":21.6,"m":0.25572,"d":"TELEVISOR LG 65UT7300PSA UHD/4K SMART WebOS c/MAGIC REMOTE","l":"TELEVISOR"},"12000299":{"p":52.8,"m":0.7182,"d":"SET CAMA PARAISO SU MAJESTAD CHARCOAL 2.0 PLZ+2ALM+1PROT","l":"SET"},"10000447":{"p":35.0,"m":0.41412,"d":"REFRIGERADORA ELECTROLUX 138LT ERT18G2HNW","l":"REFRIGERADORA"},"15000121":{"p":6.6,"m":0.03883,"d":"CAJA CHINA CLASICA SP MINI MEAT MASTER + PARRILLA","l":"CAJA"},"15000145":{"p":7.4,"m":0.04243,"d":"SET DE OLLAS FACUSA X12 CLASICA T/V (16/18/20/24/26/TETERA 3","l":"SET"},"10000470":{"p":66.0,"m":0.92021,"d":"REFRIGERADORA SAMSUNG SILVER 384LT RT38DG6730S9/PE","l":"REFRIGERADORA"},"33000055":{"p":125.0,"m":1.84,"d":"MOTO NEXUS 200XR1A NEGRO/BLANCO","l":"MOTO"},"10000435":{"p":31.0,"m":0.35809,"d":"COCINA INDURAMA VIENA 4H CROMA","l":"COCINA"},"10000715":{"p":10.8,"m":0.054,"d":"HORNO MICROONDAS MIRAY HMM-205N 20L","l":"HORNO"},"10000856":{"p":74.0,"m":0.42245,"d":"LAVASECA SAMSUNG 12KG/8KG WD12FG6B34BB/PE BESPOKE AI NEGRO","l":"LAVASECA"},"12000020":{"p":1.8,"m":0.03631,"d":"CUBRELECHO GRIS 2P","l":"CUBRELECHO"},"10000148":{"p":30.6,"m":0.41521,"d":"CONGELADORA INDURAMA CI-220BL 198LT BLANCO","l":"CONGELADORA"},"10000419":{"p":32.1,"m":0.27105,"d":"SECADORA A GAS MABE 22 KG BLANCO SMG47N8MSBBB0","l":"SECADORA"},"10000303":{"p":62.2,"m":0.80978,"d":"REFRIGERADORA LG 334 LT GT33WPP","l":"REFRIGERADORA"},"33000027":{"p":110.0,"m":1.60875,"d":"MOTO NEXUS 150XT NEGRO/ROJO","l":"MOTO"},"33000381":{"p":105.0,"m":1.60875,"d":"MOTO SSENDA ECO FINITI 150 ROJO","l":"MOTO"},"33000495":{"p":115.0,"m":1.60875,"d":"MOTO MAQUIMOTORA BERLIN 150 NEGRO","l":"MOTO"},"33000272":{"p":112.0,"m":1.60875,"d":"MOTOS SSENDA URBANKAR 150 AZUL","l":"MOTOS"},"10000192":{"p":53.2,"m":0.52647,"d":"LAVADORA MABE 16 KG LMAP6110WBBB0","l":"LAVADORA"},"10000811":{"p":42.0,"m":0.3906,"d":"LAVADORA MIDEA 13 KG CARGA SUPERIOR SILVER MA200W130/G-PE","l":"LAVADORA"},"10000584":{"p":43.0,"m":0.50793,"d":"REFRIGERADORA INDURAMA  RI-359I NO FROST 203L","l":"REFRIGERADORA"},"10000471":{"p":73.2,"m":0.3668,"d":"LAVASECA LG 11KG/7KG WD11WVC3S6 BLANCA","l":"LAVASECA"},"33000004":{"p":95.0,"m":1.463,"d":"MOTO SUKHOI LIFAN 125 cc NEGRO","l":"MOTO"},"33000372":{"p":85.0,"m":1.463,"d":"MOTO CHEETAH 110 NEGRO","l":"MOTO"},"33000021":{"p":85.0,"m":1.4364,"d":"MOTO ORIOL 110 CC BLANCO","l":"MOTO"},"10000387":{"p":46.6,"m":0.7084,"d":"CONGELADORA MABE 290L BLANCO CHM300PB2","l":"CONGELADORA"},"10000712":{"p":41.26,"m":0.46609,"d":"COCINA INDURAMA CANTABRIA QZ 5H CROMA","l":"COCINA"},"10000735":{"p":33.8,"m":0.33797,"d":"TELEVISOR TCL QLED-MiniLED 75C6KS 75\" 4K UHD GOOGLE TV","l":"TELEVISOR"},"10000663":{"p":6.896,"m":0.0352,"d":"TERMA A GAS SOLE 8LT MULTIPUNTO CONTROL TOTAL + KIT DE INSTA","l":"TERMA"},"10000150":{"p":39.6,"m":0.64706,"d":"CONGELADORA INDURAMA CI-320BL 297LT BLANCO","l":"CONGELADORA"},"10000460":{"p":12.5,"m":0.14284,"d":"TELEVISOR TCL 55\" TV 55P635","l":"TELEVISOR"},"15000078":{"p":5.4,"m":0.04867,"d":"PARRILLA MALETÍN MIXTA","l":"PARRILLA"},"10000706":{"p":11.0,"m":0.114,"d":"TELEVISOR LG 50UA7300PSB UHD/4K SMART Thinq AI C/MAGIC REMOT","l":"TELEVISOR"},"10000921":{"p":38.0,"m":0.41642,"d":"LAVADORA LG WT13BVTB 13KG NEGRO CLARO","l":"LAVADORA"},"10000889":{"p":11.5,"m":0.13645,"d":"TELEVISOR HISENSE QLED 50QD5SV 50\" UHD/4K SMART VIDAA VOICE","l":"TELEVISOR"},"12000243":{"p":18.2,"m":0.13546,"d":"SILLA GAMER PROGEAR ZONE INCLINACIÓN 135° MAX. 120KG TAPIZ C","l":"SILLA"},"10000522":{"p":121.2,"m":1.21414,"d":"CENTRO DE LAVADO MABE DE 24KL A GAS NEGRO MCLP2440PSDG0","l":"CENTRO"},"10000797":{"p":35.4,"m":0.4032,"d":"TELEVISOR LG 75UA8050PSA UHD/4K SMART Thinq AI C/MAGIC REMOT","l":"TELEVISOR"},"10000848":{"p":39.2,"m":0.39996,"d":"LAVADORA HISENSE 14 KG WT3K1423UT GRIS","l":"LAVADORA"},"12000296":{"p":16.0,"m":0.11683,"d":"SILLA GAMER POWER GAMER INCLINACIÓN 135° MAX. 120KG TAPIZ CU","l":"SILLA"},"15000138":{"p":4.9,"m":0.03058,"d":"JUEGO DE OLLAS DE METAL 12 PIEZAS N-E13 COD. 2378-05","l":"JUEGO"},"33000244":{"p":55.0,"m":1.16025,"d":"BICIMOTO ELECTRICA VMP S1 PRO 48V12AH (con espejo) ROJO","l":"BICIMOTO"},"10000718":{"p":38.6,"m":0.54821,"d":"LAVADORA LG WT16BVTB 16KG NEGRO CLARO","l":"LAVADORA"},"10000502":{"p":0.4,"m":0.0019,"d":"AUDIFONOS BLUETOOTH MERTEC MT-024B","l":"AUDIFONOS"},"10000509":{"p":47.8,"m":0.53038,"d":"COCINA MABE 6H CMP7630FX0","l":"COCINA"},"14000011":{"p":20.4,"m":0.03601,"d":"CAJA X6 PANETON TOTTUS x900gr","l":"CAJA"},"10000510":{"p":45.6,"m":0.51994,"d":"COCINA MABE 5H CMP7640FX0","l":"COCINA"},"35000035":{"p":8.2,"m":0.33945,"d":"PACK CRISTAL (1 MESA CRISTAL + 4 SILLAS CRISTAL)","l":"PACK"},"10000785":{"p":87.6,"m":0.12484,"d":"REFRIGERADORA MABE SIDE BY SIDE NO FROST INVERTER 520 LTS BL","l":"REFRIGERADORA"},"10000591":{"p":3.6,"m":0.03267,"d":"OLLA FREIDORA MIRAY 3.5LT OFM-451","l":"OLLA"},"10000928":{"p":30.0,"m":0.31248,"d":"SECADORA ELECTRICA DE ROPA ELECTROLUX EDEJ07D2JSYW 7KG","l":"SECADORA"},"10000586":{"p":41.2,"m":0.46451,"d":"COCINA INDURAMA GRANADA CROMA ZFO 4H GLP","l":"COCINA"},"10000751":{"p":56.0,"m":0.44621,"d":"COCINA SGA 5H PLATINUM 30\" DIGITAL","l":"COCINA"},"10000262":{"p":61.8,"m":0.88726,"d":"REFRIGERADORA SAMSUNG GRIS 361LT - RT35K5930S8/PE","l":"REFRIGERADORA"},"12000061":{"p":14.6,"m":0.12584,"d":"MESA DE NOCHE LED SMART 3 CAJONES C/ PARLANTE BLUETOOTH","l":"MESA"},"10000194":{"p":22.5,"m":0.21696,"d":"EQUIPO DE SONIDO LG RNC9.DPERLLK","l":"EQUIPO"},"10000814":{"p":35.8,"m":0.42224,"d":"REFRIGERADORA MIDEA MONOPUERTA 187L NEGRA MDRD190ANLXW","l":"REFRIGERADORA"},"10000436":{"p":39.18,"m":0.41769,"d":"LAVADORA LG WT13BPBK 13KG NEGRO CLARO","l":"LAVADORA"},"10000554":{"p":28.4,"m":0.27416,"d":"HORNO A GAS EMPOTRABLE KLIMATIC BREMEN 70LT","l":"HORNO"},"10000802":{"p":70.8,"m":0.81872,"d":"REFRIGERADORA LG 374 LT VT38SPYC","l":"REFRIGERADORA"},"35000025":{"p":4.0,"m":0.02866,"d":"JUEGO DE OLLAS DE METAL 12 PIEZAS INCLUYE 12 SET DE UTENSILI","l":"JUEGO"},"10000660":{"p":5.0,"m":0.02797,"d":"TERMA BRYANT MASTER GN 5.5 LT + KIT INSTALACION","l":"TERMA"},"19001119":{"p":14.4,"m":0.2585,"d":"CARRETILLA 6FT3 NEUMÁTICA BASTIDOR TUBULAR TRUPER","l":"CARRETILLA"},"10000920":{"p":1.4,"m":0.00942,"d":"PARLANTE RECARGABLE 40CM CON LUCES XYX-270 / CS-4404","l":"PARLANTE"},"34000011":{"p":1.0,"m":0.00158,"d":"ACEITE ENMOTTO 20W50 (ROJO) MINERAL API SJ 1 LTR UND","l":"ACEITE"},"12000029":{"p":2.4,"m":0.066,"d":"DUVET HOTELERO 2P","l":"DUVET"},"12000009":{"p":31.2,"m":0.7182,"d":"COLCHON PARAISO PREMIUM MEDALLON ERGOSOFT 2.0 PL+2ALM+1PROT","l":"COLCHON"},"10000559":{"p":31.0,"m":0.35809,"d":"COCINA INDURAMA VIENA 4H CROMA GLP","l":"COCINA"},"12000025":{"p":1.8,"m":0.03522,"d":"CUBRELECHO AZUL 2 PLAZAS","l":"CUBRELECHO"},"10000042":{"p":52.6,"m":0.69144,"d":"REFRIGERADORA MABE RMA300FBPG1","l":"REFRIGERADORA"},"15000104":{"p":3.6,"m":0.2304,"d":"ESTANTE PLÁSTICO 4 NIVELES 128X60X30CM RIMAX","l":"ESTANTE"},"10000565":{"p":59.2,"m":0.6834,"d":"CONSERVADORA EXHIBIDORA MIRAY - CMVE-204D 200L","l":"CONSERVADORA"},"10000084":{"p":10.6,"m":0.09747,"d":"CAMPANA INDURAMA EXTRACTORA CEI-902CRP 90 CM","l":"CAMPANA"},"10000446":{"p":33.0,"m":0.33756,"d":"LAVADORA MABE 10KG LMAP1010WBBB0 BLANCO","l":"LAVADORA"},"15000041":{"p":7.8,"m":0.11049,"d":"CILINDRO PARRILLERO A GAS SUPER GRILLS","l":"CILINDRO"},"10000853":{"p":52.4,"m":0.66062,"d":"REFRIGERADORA MIDEA TOP FREEZER 263 L MDRT385MTR46PEW","l":"REFRIGERADORA"},"10000428":{"p":16.0,"m":0.07308,"d":"HORNO MICROONDA INDURAMA - MWI-32TCRP","l":"HORNO"},"12000028":{"p":2.2,"m":0.0638,"d":"DUVET HOTELERO 1,5P","l":"DUVET"},"10000687":{"p":15.6,"m":0.12438,"d":"FRIGOBAR BORD MI50S-M 50LT SILVER","l":"FRIGOBAR"},"10000030":{"p":7.8,"m":0.06797,"d":"CAMPANA MABE CMU9020PI0 90CM","l":"CAMPANA"},"10000076":{"p":44.4,"m":0.60775,"d":"REFRIGERADORA INDURAMA RI-389D 267L","l":"REFRIGERADORA"},"10000503":{"p":3.8,"m":0.03333,"d":"FREIDORA DE AIRE DIGITAL MERTEC 4.2 LITROS MT-001BV","l":"FREIDORA"},"15000045":{"p":20.8,"m":0.19673,"d":"CAJA CHINA CON PARRILLA ELEVADIZA","l":"CAJA"},"12000295":{"p":16.0,"m":0.11683,"d":"SILLA GAMER POWER GAMER INCLINACIÓN 135° MAX. 120KG TAPIZ CU","l":"SILLA"},"12000230":{"p":3.4,"m":0.00358,"d":"MESA CUADRADA KINA LOGO CRISTAL","l":"MESA"},"10000256":{"p":49.0,"m":0.57143,"d":"LAVADORA SAMSUNG 15 Kg WA15T5260BY GRIS","l":"LAVADORA"},"10000310":{"p":48.0,"m":0.57143,"d":"LAVADORA SAMSUNG 15 Kg WA15T5260BV NEGRA","l":"LAVADORA"},"12000039":{"p":0.6,"m":0.0039,"d":"SABANAS MICROFIBRA BLANCA 2 PLAZAS","l":"SABANAS"},"10000761":{"p":51.6,"m":0.5658,"d":"COCINA INDURAMA GALICIA ZAFIRO CROMA 6H","l":"COCINA"},"10000757":{"p":53.2,"m":0.5642,"d":"COCINA INDURAMA FIRENZE ZAFIRO CROMA 5H","l":"COCINA"},"12000288":{"p":2.6,"m":0.0373,"d":"MESA PLEGABLE MED. 95*55 CM COD. 4064-2","l":"MESA"},"10000791":{"p":2.6,"m":0.02943,"d":"OLLA ARROCERA 5 LITROS NEGRO COD. MY-005","l":"OLLA"},"10000392":{"p":36.6,"m":0.27617,"d":"EQUIPO DE SONIDO LG OK99M ONEBOX MAXIPOTENCIA USB/BT/AUX/KAR","l":"EQUIPO"},"10000888":{"p":6.9,"m":0.03631,"d":"TELEVISOR HISENSE QLED 40Q4SV 40\" FULL HD SMART VIDAA VOICE","l":"TELEVISOR"},"10000805":{"p":47.8,"m":0.52925,"d":"COCINA MABE 6H CMP3020FN1 GLP","l":"COCINA"},"10000457":{"p":43.1,"m":0.51818,"d":"LAVADORA LG WT19BV6 19KG NEGRO CLARO","l":"LAVADORA"},"10000558":{"p":26.4,"m":0.25806,"d":"COCINA INDURAMA FONTANA GRIS 4H GLP","l":"COCINA"},"11000183":{"p":8.8,"m":0.04608,"d":"IMPRESORA HP MULTIFUNCIONAL SMART TANK 720 INALAMBRICA DUPLE","l":"IMPRESORA"},"10000211":{"p":44.5,"m":0.49844,"d":"LAVADORA  LG 17KG WT17DV6.ASFGLGP SILVER","l":"LAVADORA"},"12000057":{"p":0.8,"m":0.00435,"d":"TOALLA CUERPO BEIGE","l":"TOALLA"},"10000450":{"p":16.0,"m":0.09778,"d":"HORNO MICROONDAS SAMSUNG 32L MS32DG4504AG/PE NEGRA INOX","l":"HORNO"},"10000596":{"p":6.0,"m":0.04313,"d":"VENTILADOR PEDESTAL MIRAY 16\" - VMP-1001","l":"VENTILADOR"},"12000019":{"p":1.6,"m":0.03507,"d":"CUBRELECHO GRIS 1,5P","l":"CUBRELECHO"},"10000298":{"p":38.2,"m":0.41769,"d":"LAVADORA LG TS1366NTP GRIS","l":"LAVADORA"},"12000034":{"p":0.8,"m":0.00348,"d":"PROTECTOR DE COLCHÓN IMPERMEABLE 2P","l":"PROTECTOR"},"15000143":{"p":4.0,"m":0.036,"d":"PARRILLA REDONDA DE BBQ MOD. MDGM-02","l":"PARRILLA"},"10000171":{"p":44.4,"m":0.3833,"d":"REFRIGERADORA INDURAMA RI-289D CROMA 176L","l":"REFRIGERADORA"},"12000059":{"p":0.8,"m":0.00348,"d":"TOALLA CUERPO GRIS","l":"TOALLA"},"15000140":{"p":0.8,"m":0.00461,"d":"SET DE UTENSILIOS 12 PIEZAS","l":"SET"},"11000816":{"p":7.2,"m":0.04521,"d":"IMPRESORA EPSON MULTIFUNCIONAL ECOTANK L4360 INALAMBRICA DUP","l":"IMPRESORA"},"12000233":{"p":2.4,"m":0.3591,"d":"PLANCHADOR DE ROPA","l":"PLANCHADOR"},"10000134":{"p":17.8,"m":0.17846,"d":"TELEVISOR LG 55UQ801COS","l":"TELEVISOR"},"10000263":{"p":17.8,"m":0.17846,"d":"TELEVISOR LG 55UR871","l":"TELEVISOR"},"10000229":{"p":21.6,"m":0.35504,"d":"TELEVISOR LG 65UR871","l":"TELEVISOR"},"10000197":{"p":31.6,"m":0.35444,"d":"COCINA INDURAMA ASTURIAS SPAZIO PLUS CR 4H","l":"COCINA"},"10000400":{"p":24.8,"m":0.11804,"d":"AIRE ACONDICIONADO PORTÁTIL IMACO 9000 BTU AC9010G BLANCO","l":"AIRE"},"12000024":{"p":1.6,"m":0.03507,"d":"CUBRELECHO AZUL 1.5 PLAZAS","l":"CUBRELECHO"},"10000865":{"p":4.4,"m":0.02477,"d":"TELEVISOR CAIXUN 32\" SMART TV HD GOOGLE TV C32K4HG","l":"TELEVISOR"},"32000162":{"p":6.0,"m":0.34425,"d":"PARACHOQUE DELANTERO TOYOTA YARIS","l":"PARACHOQUE"},"32000163":{"p":6.0,"m":0.34425,"d":"PARACHOQUE POSTERIOR TOYOTA YARIS","l":"PARACHOQUE"},"10000915":{"p":3.2,"m":0.01482,"d":"LICUADORA RAF 1000W R.2824 1.5L VASO DE VIDRIO PEQUEÑO Y GRA","l":"LICUADORA"},"18000002":{"p":43.0,"m":0.33264,"d":"FREIDORA A GAS DE DOS BANDEJAS/PIE MOD FY-2G","l":"FREIDORA"},"35000027":{"p":4.6,"m":0.08201,"d":"COMBO CAMPING: MESA PLEGABLE MED. 95*55 CM COD. 4064-2 + TER","l":"COMBO"},"12000026":{"p":2.0,"m":0.03545,"d":"CUBRELECHO AZUL QUEEN","l":"CUBRELECHO"},"12000022":{"p":2.2,"m":0.03522,"d":"CUBRELECHO GRIS KING","l":"CUBRELECHO"},"10000170":{"p":29.8,"m":0.31506,"d":"COCINA MABE 4H EMP5120GP0 GLP","l":"COCINA"},"10000198":{"p":30.0,"m":0.31506,"d":"COCINA MABE 4H EMP5120GP1 GN","l":"COCINA"},"10000216":{"p":30.0,"m":0.31506,"d":"COCINA MABE 4H EMP5120GP1 GLP","l":"COCINA"},"10000931":{"p":4.53,"m":0.04335,"d":"EXTRACTOR DE JUGOS OSTER 600W SILVER FPSTJE320S","l":"EXTRACTOR"},"11001140":{"p":2.535,"m":0.01152,"d":"LAPTOP LENOVO IDEAPAD SLIM3 83ER00N8LM 15.6\" WIN11 CORE I5-1","l":"LAPTOP"},"10000418":{"p":34.4,"m":0.29396,"d":"HORNO A GAS EMPOTRABLE  INDURAMA 75L HEI-75NGP","l":"HORNO"},"10000417":{"p":21.2,"m":0.09663,"d":"ENCIMERA GAS INDURAMA 5H NEGRO EGASI-905CGNE","l":"ENCIMERA"},"12000027":{"p":2.2,"m":0.03575,"d":"CUBRELECHO AZUL KING","l":"CUBRELECHO"},"10000679":{"p":1.6,"m":0.01583,"d":"CAFETERA 1.25LT 12 TAZAS NEGRA DCM-1859 DAEWOO","l":"CAFETERA"},"12000289":{"p":1.2,"m":0.28483,"d":"COCHE DE MERCADO COLORES SURTIDOS","l":"COCHE"},"12000030":{"p":2.8,"m":0.07114,"d":"DUVET HOTELERO KING","l":"DUVET"},"10000029":{"p":6.0,"m":0.04738,"d":"CAMPANA MABE CMU6020PI0 60CM","l":"CAMPANA"},"12000018":{"p":1.4,"m":0.03507,"d":"CUBRELECHO GRIS 1P","l":"CUBRELECHO"},"10000452":{"p":21.2,"m":0.09216,"d":"ENCIMERA GAS INDURAMA 5H EGI-905VDNEG","l":"ENCIMERA"},"10000393":{"p":27.6,"m":0.27086,"d":"COCINA INDURAMA CASSAT CROMA 4H","l":"COCINA"},"10000792":{"p":2.2,"m":0.01691,"d":"HORNO ELECTRICO DOU DOU COD. MY-001","l":"HORNO"},"10000711":{"p":14.0,"m":0.13481,"d":"TELEVISOR LG 55UA7300PSB UHD/4K SMART Thinq AI C/MAGIC REMOT","l":"TELEVISOR"},"10000642":{"p":13.0,"m":0.06571,"d":"ENCIMERA GAS INDURAMA 4H EGI-604VDNEG","l":"ENCIMERA"},"12000049":{"p":0.6,"m":0.0039,"d":"SABANAS MICROFIBRA GRIS 2 PLAZAS","l":"SABANAS"},"10000107":{"p":20.0,"m":0.26112,"d":"TELEVISOR LG 65UQ8050PSB.AWF","l":"TELEVISOR"},"10000525":{"p":10.62,"m":0.05128,"d":"TERMA AGHASO 10L TIRO FORZADO GN-AGH011 + KIT INSTALACIÓN","l":"TERMA"},"10000734":{"p":24.2,"m":0.08395,"d":"TELEVISOR TCL QLED-MiniLED 65C6K 65\" 4K UHD GOOGLE TV","l":"TELEVISOR"},"10000681":{"p":4.4,"m":0.03105,"d":"FREIDORA DE AIRE DIGITAL OSTER 4L CKSTAF40WDDF","l":"FREIDORA"},"11000149":{"p":5.4,"m":0.0391,"d":"IMPRESORA EPSON MULTIFUNCIONAL ECOTANK L3250 INALAMBRICA","l":"IMPRESORA"},"11000118":{"p":7.2,"m":0.04491,"d":"IMPRESORA HP MULTIFUNCIONAL SMART TANK 580 INALAMBRICA","l":"IMPRESORA"},"10000206":{"p":12.2,"m":0.1098,"d":"TELEVISOR HYUNDAI 50\" UHD WebOS SMART TV HYLED5017W4KM","l":"TELEVISOR"},"32000295":{"p":1.2,"m":0.108,"d":"SCOOTER PLEGABLE PARA NIÑOS CON LUCES","l":"SCOOTER"},"35000028":{"p":2.8,"m":0.10764,"d":"COMBO HOGAR: COCHE DE MERCADO COLORES SURTIDOS + TRAPEADOR C","l":"COMBO"},"10000208":{"p":20.0,"m":0.21177,"d":"MINICOMPONENTE LG CL87 CD/USB/BT/FM/AUX/KARAOKE/LUCES","l":"MINICOMPONENTE"},"35000018":{"p":3.8,"m":0.01386,"d":"COMBO COLCHÓN INFLABLE 2 PLAZAS KLIMBER + 2 ALMOHADAS + INFL","l":"COMBO"},"10000003":{"p":10.8,"m":0.10296,"d":"TELEVISOR LG 43UN711COSA.AWF","l":"TELEVISOR"},"11000824":{"p":9.6,"m":0.06752,"d":"IMPRESORA EPSON MULTIFUNCIONAL ECOTANK L6370 INALAMBRICA DUP","l":"IMPRESORA"},"10000745":{"p":7.4,"m":0.20025,"d":"FRIGOBAR INDURAMA RI-101 90LT BLANCO","l":"FRIGOBAR"},"11000818":{"p":7.8,"m":0.0498,"d":"IMPRESORA EPSON MULTIFUNCIONAL ECOTANK L5590 INALAMBRICA ADF","l":"IMPRESORA"},"12000053":{"p":0.6,"m":0.0039,"d":"SABANAS MICROFIBRA GRIS OSCURO 2 PLAZAS","l":"SABANAS"},"10000819":{"p":2.4,"m":0.04844,"d":"COCINA DE MESA SURGE 2 HORNILLAS DE ACERO INOXIDABLE S/TAPA","l":"COCINA"},"18000004":{"p":30.0,"m":0.19008,"d":"VITRINA CALIENTE ELECTRICA MOD GFY-2P","l":"VITRINA"},"10000038":{"p":17.6,"m":0.18633,"d":"TELEVISOR LG 55UP771C0SB.AWF","l":"TELEVISOR"},"35000012":{"p":13.8,"m":0.093,"d":"PACK PILSEN (1 MESA + 4 SILLAS + 6 VASOS + 1 MANDIL)","l":"PACK"},"10000493":{"p":17.4,"m":0.18106,"d":"TELEVISOR SAMSUNG UN55DU7000GXPE 55\" UHD/4K SMART TIZEN","l":"TELEVISOR"},"19000519":{"p":1.2,"m":0.00302,"d":"CAJA DE HERRAMIENTAS MERTEC MT-008B","l":"CAJA"},"1000188":{"p":5.0,"m":0.176,"d":"VENTILADOR PEDESTAL IMACO 18\" FS18105","l":"VENTILADOR"},"10000491":{"p":2.0,"m":0.01255,"d":"OLLA ARROCERA TAURUS MOD CHEF 12 II PE9683030A","l":"OLLA"},"12000044":{"p":0.6,"m":0.0039,"d":"SABANAS MICROFIBRA AZUL 2 PLAZAS","l":"SABANAS"},"11001146":{"p":3.365,"m":0.01895,"d":"LAPTOP ASUS X1504VA-BQ4454W VIVOBOOK15 CORE 5-120U 15.6\" WIN","l":"LAPTOP"},"12000229":{"p":2.2,"m":0.17034,"d":"SILLAS ZEN - LOGO PILSEN","l":"SILLAS"},"11000866":{"p":8.165,"m":0.05669,"d":"COMPUTADORA ALL IN ONE ASUS 23.8\" A3402WVAKBPC0840 FULL HD C","l":"COMPUTADORA"},"11000821":{"p":8.4,"m":0.05527,"d":"IMPRESORA HP MULTIFUNCIONAL SMART TANK 530 INALAMBRICA","l":"IMPRESORA"},"10000012":{"p":11.6,"m":0.16087,"d":"TELEVISOR PHILLIPS 50PUD7625","l":"TELEVISOR"},"10000619":{"p":9.62,"m":0.07762,"d":"TERMA RHEEM GN DE TIRO FORZADO 10LIT/GALON + KIT DE INSTALAC","l":"TERMA"},"15000038":{"p":18.0,"m":0.154,"d":"PARRILLA A GAS GALAXY TOP SPARTAN GRILLS","l":"PARRILLA"},"12000249":{"p":2.6,"m":0.0191,"d":"MESA PLEGABLE MED. 120*55CM COD. 4064-3","l":"MESA"},"15000029":{"p":1.8,"m":0.03,"d":"KIT RACK FIJO TV 32\"-80\"HWM080KCM C/CABLE HDMI Y REPISA VIDR","l":"KIT"},"10000289":{"p":13.6,"m":0.14953,"d":"MINICOMPONENTE LG XBOOM CJ45 BLUETOOTH KARAOKE NEGRO","l":"MINICOMPONENTE"},"15000039":{"p":15.2,"m":0.14951,"d":"PARRILLA A GAS KARSON 60x136x60cm 2 QUEMADORES","l":"PARRILLA"},"15000106":{"p":0.8,"m":0.01354,"d":"SET DE UTENSILIOS COCINERO C/ MANGO DE PLÁSTICO X06 PZAS FAC","l":"SET"},"10000182":{"p":3.2,"m":0.0163,"d":"LICUADORA OSTER 550W BOTONES ROJO BLSTKAGRPB053","l":"LICUADORA"},"10000083":{"p":7.0,"m":0.0702,"d":"CAMPANA INDURAMA EXTRACTORA CEI-602CRP 60 CM","l":"CAMPANA"},"12000038":{"p":0.6,"m":0.00418,"d":"SABANAS MICROFIBRA BLANCA 1.5 PLAZA","l":"SABANAS"},"10000925":{"p":1.8,"m":0.0166,"d":"TERMO 4 LT RAF","l":"TERMO"},"15000151":{"p":2.8,"m":0.0265,"d":"OLLA A PRESIÓN FACUSA MOD1 HI 7LT           ","l":"OLLA"},"18000005":{"p":100.0,"m":0.12936,"d":"EMPACADORA AL VACIO / DOS  BARRAS DE SELLADO MOD DZ-400/2E","l":"EMPACADORA"},"15000108":{"p":1.8,"m":0.00961,"d":"SARTÉN TAURUS FRYING PAN TAU. BEST MOMENTS 26(KPA4026)","l":"SARTÉN"},"15000096":{"p":8.0,"m":0.12041,"d":"CILINDRO ASADOR MEAT MASTER MINI","l":"CILINDRO"},"10000649":{"p":19.6,"m":0.11993,"d":"HORNO MICROONDAS OSTER POGYME1502G 45L","l":"HORNO"},"35000036":{"p":3.5,"m":0.01329,"d":"BALANZA COMERCIAL DIGITAL VENTUS B-40 + REGALO MANDIL PUBLIC","l":"BALANZA"},"35000014":{"p":0.6,"m":0.00267,"d":"PACK CUSQUEÑA (10 VASOS TRANSPARENTE + 3 DESTAPADORES LLAVER","l":"PACK"},"15000147":{"p":2.4,"m":0.00975,"d":"ESTANTE MULTIUSO PARA BAÑO COD. TM-0090","l":"ESTANTE"},"15000139":{"p":1.8,"m":0.0115,"d":"SOMBRILLA DE PLAYA KLIMBER +UV 50 2M COLORES VARIADOS","l":"SOMBRILLA"},"35000024":{"p":4.0,"m":0.02866,"d":"JUEGO DE OLLAS DE METAL 12 PIEZAS INCLUYE 10 SET DE UTENSILI","l":"JUEGO"},"10000396":{"p":3.4,"m":0.0286,"d":"VENTILADOR 3 EN 1 16\" 50W  RECCO RD-40G-3","l":"VENTILADOR"},"11000837":{"p":10.0,"m":0.05669,"d":"COMPUTADORA ALL IN ONE ASUS 23.8\" P440VAK-WPC017W FULL HD CO","l":"COMPUTADORA"},"12000021":{"p":2.0,"m":0.03683,"d":"CUBRELECHO GRIS QUEEN","l":"CUBRELECHO"},"11000822":{"p":9.0,"m":0.05472,"d":"IMPRESORA HP MULTIFUNCIONAL SMART TANK 750 INALAMBRICA DUPLE","l":"IMPRESORA"},"12000241":{"p":0.6,"m":0.00838,"d":"COLGADOR DE ROPA 6011-RR","l":"COLGADOR"},"10000047":{"p":11.4,"m":0.10639,"d":"TELEVISOR LG 43UP771COSB.AWF","l":"TELEVISOR"},"10000847":{"p":0.8,"m":0.0057,"d":"MÁQUINA DE COSER PORTATIL CON MESITA","l":"MÁQUINA"},"10000063":{"p":2.6,"m":0.02513,"d":"CAFETERA OSTER 12 TAZAS PROG NEGRA BVSTDCP12B","l":"CAFETERA"},"10000312":{"p":11.0,"m":0.09992,"d":"TELEVISOR LG 50UR871","l":"TELEVISOR"},"15000027":{"p":10.8,"m":0.09977,"d":"CAJA CHINA NEGRA","l":"CAJA"},"15000008":{"p":0.9,"m":0.00036,"d":"CINTA TEFLON BLANCO","l":"CINTA"},"32000258":{"p":7.1,"m":0.02415,"d":"LLANTA 195/65R15 91H BRICS BR-202 TL","l":"LLANTA"},"10000783":{"p":2.4,"m":0.04666,"d":"VENTILADOR DE TORRE FUJITEC 32\" CF-3200C.R","l":"VENTILADOR"},"10000740":{"p":22.2,"m":0.09278,"d":"TELEVISOR LG 65\" QNED 4K THINQ AI 65QNED82ASG","l":"TELEVISOR"},"15000129":{"p":0.9,"m":7e-05,"d":"PILA TIPO D","l":"PILA"},"11001034":{"p":2.31,"m":0.01002,"d":"LAPTOP HP 15.6\" HP250 G10 CORE i3-N305 WIN11 8GB 256GB SSD","l":"LAPTOP"},"10000917":{"p":4.0,"m":0.02987,"d":"ARROCERA OSTER 1.8L VAPOR ANTIAD NEGRO CKSTRC10DFBLK","l":"ARROCERA"},"15000132":{"p":2.0,"m":0.00875,"d":"MINI PARRILLA NEGRA PLEGABLE MEAT MASTER","l":"MINI"},"10000011":{"p":12.0,"m":0.08707,"d":"TELEVISOR PHILLIPS 58PUD7625","l":"TELEVISOR"},"10000699":{"p":2.217,"m":0.0434,"d":"PARLANTE PORTÁTIL C/ BLUETOOTH MIRAY PMBT-87N 40W","l":"PARLANTE"},"32000269":{"p":7.1,"m":0.02125,"d":"LLANTA 185/65R15 88H MAZZINI ECO307 PLUS TL","l":"LLANTA"},"10000866":{"p":7.2,"m":0.00274,"d":"TELEVISOR CAIXUN 43\" SMART TV FHD GOOGLE TV C43K4FG","l":"TELEVISOR"},"32000063":{"p":7.0,"m":0.02105,"d":"LLANTA 185/70R14 HANKOOK H735 KINERGY ST","l":"LLANTA"},"32000111":{"p":7.2,"m":0.02105,"d":"LLANTA 185/70R14 88T SP TOURING T1 DUNLOP TL","l":"LLANTA"},"12000035":{"p":1.2,"m":0.00458,"d":"PROTECTOR DE COLCHÓN IMPERMEABLE KING","l":"PROTECTOR"},"11000558":{"p":2.535,"m":0.01152,"d":"LAPTOP LENOVO IDEAPAD SLIM3i 83ER001ALM 15.6\" WIN11 CORE i5-","l":"LAPTOP"},"11000852":{"p":8.185,"m":0.07958,"d":"COMPUTADORA ALL IN ONE LENOVO 23.8\" F0HN009XLD FULL HD CORE ","l":"COMPUTADORA"},"11000877":{"p":10.5,"m":0.03969,"d":"PC GAMER TEROS RGB CORE i7-8700 32GB 1TB SSD RTX3050 6GB MON","l":"PC"},"16000049":{"p":7.6,"m":0.0072,"d":"SET DE MOCHILAS PARA NIÑAS 3 PIEZAS INCLUYE MOCHILA + LONCHE","l":"SET"},"16000050":{"p":7.6,"m":0.0072,"d":"SET DE MOCHILAS PARA NIÑOS 3 PIEZAS INCLUYE MOCHILA + LONCHE","l":"SET"},"10000207":{"p":4.8,"m":0.03845,"d":"TELEVISOR AIWA 32\" HD ANDROID SMART TV AW32B4SMG","l":"TELEVISOR"},"10000595":{"p":13.2,"m":0.07535,"d":"TELEVISOR BGH B5824UK6AIP 58\" UHD/4K SMART ANDROID TV","l":"TELEVISOR"},"15000127":{"p":5.4,"m":0.0375,"d":"JUEGO DE OLLAS 7 PIEZAS ACERO INOXIDABLE CASA JOVEN","l":"JUEGO"},"10000690":{"p":4.4,"m":0.03719,"d":"TELEVISOR LED SMART MIRAY 32\" MS32-E204","l":"TELEVISOR"},"10000742":{"p":3.2,"m":0.01474,"d":"LICUADORA PRACTIKA 1.5LT BL-600 MOD. PE9120920A","l":"LICUADORA"},"10000678":{"p":3.2,"m":0.01469,"d":"BALANZA COMERCIAL MIRAY BMC-110","l":"BALANZA"},"12000058":{"p":0.8,"m":0.00348,"d":"TOALLA CUERPO BLANCA","l":"TOALLA"},"15000133":{"p":0.4,"m":0.003,"d":"SARTÉN FACUSA ESTELA NRO20","l":"SARTEN"},"11001099":{"p":2.535,"m":0.01014,"d":"LAPTOP LENOVO 15.3\" 83K100KFLM WUXGA CORE i7-13620H WIN11 24","l":"LAPTOP"},"10000105":{"p":16.6,"m":0.06986,"d":"TELEVISOR MOTOROLA MOT55ULD01 55\"","l":"TELEVISOR"},"10000112":{"p":11.4,"m":0.06499,"d":"HORNO MICROONDA LG MH6536GIS.BBKGLPR 25L","l":"HORNO"},"10000815":{"p":4.0,"m":0.03245,"d":"ARROCERA OSTER 2.2L VAPOR ANTIAD SILVER CKSTRC12DFSKE","l":"ARROCERA"},"10000547":{"p":11.0,"m":0.06421,"d":"HORNO MICROONDAS LG MS2596DIR.CB1GLPR 25 LT","l":"HORNO"},"11000510":{"p":2.535,"m":0.01591,"d":"LAPTOP GAMER LENOVO LOQ 15.6\" 83GS000BLM FULL HD CORE i5-124","l":"LAPTOP"},"10000096":{"p":11.0,"m":0.06292,"d":"CALENTADOR GN BOSCH AS0 10 Lt.+ Kit","l":"CALENTADOR"},"15000110":{"p":0.6,"m":0.00037,"d":"CHALECO DEPORTIVO DRY FIT AZUL/AMARILLO LOGO CRISTAL","l":"CHALECO"},"15000077":{"p":0.8,"m":0.01026,"d":"COOLER BASA YCEPRO JR. 5QT","l":"COOLER"},"10000413":{"p":5.5,"m":0.03069,"d":"TERMA AQUAMAXX DE PASO A GN TIPO A 5.5 LTS/MIN + KIT DE INST","l":"TERMA"},"15000117":{"p":5.4,"m":0.03058,"d":"CAJA CHINA MINI S BLACK  MR. GRILL EDITION CON PARRILLA DE V","l":"CAJA"},"12000236":{"p":3.2,"m":0.06106,"d":"EDREDÓN PLUMÓN HIPOALERGÉNICO BLANCO QUEEN VA KAZ HOME COLLE","l":"EDREDÓN"},"10000680":{"p":1.0,"m":0.012,"d":"HERVIDOR PRACTIKA NAPOLES BLACK 2.5L","l":"HERVIDOR"},"10000728":{"p":4.4,"m":0.02991,"d":"TELEVISOR INNOS 32INCH SMART TV A14 S3201KU","l":"TELEVISOR"},"10000774":{"p":6.0,"m":0.05929,"d":"VENTILADOR BOSSKO 18\" 3 EN 1","l":"VENTILADOR"},"12000013":{"p":61.2,"m":0.01975,"d":"CAMA PARAISO POCKET STAR CHOCOLATE QUEEN+2ALM+1PROT","l":"CAMA"},"10000762":{"p":10.1,"m":0.05899,"d":"HORNO MICROONDAS RECCO 20L RMD-CUCINA20 NEGRO","l":"HORNO"},"11000927":{"p":2.535,"m":0.01152,"d":"LAPTOP LENOVO 15.6\" 82XM00S6LM AMD R7-5825U WIN11 16GB 512GB","l":"LAPTOP"},"13000005":{"p":0.4,"m":0.00336,"d":"DETECTOR DE BILLETES FALSO PVC OPALUX LUZ UV 9W  SELLO DE AG","l":"DETECTOR"},"35000038":{"p":0.085,"m":0.00038,"d":"SMARTWATCH T900 PRO MAX EVO SERIE10 + STICKER RECTANGULAR 1.","l":"SMARTWATCH"},"10000863":{"p":0.6,"m":0.00365,"d":"SECADORA DE CABELLO 5 EN 1 CON SET MOLDEADOR","l":"SECADORA"},"15000125":{"p":0.4,"m":0.00175,"d":"SET DE CUBIERTOS 16 PIEZAS FACUSA MOD 60. ESCAMA","l":"SET"},"19001080":{"p":1.2,"m":0.02539,"d":"SET 2 CAJAS DE HERRAMIENTAS 18\"  Y 12\" BAUKER","l":"SET"},"10000713":{"p":1.0,"m":0.0036,"d":"EXPRIMIDOR PRACTIKA MOD CITRUS FORCE","l":"EXPRIMIDOR"},"15000144":{"p":0.6,"m":0.00239,"d":"SET DE UTENSILIOS FACUSA (FT1074) X 03 BBQ (T-E-P) C/MANDIL","l":"SET"},"11001145":{"p":2.31,"m":0.01002,"d":"LAPTOP HP 15-FD2373LA CORE ULTRA 7-225U AI 15.6\" WIN11 24GB ","l":"LAPTOP"},"11001170":{"p":170.0,"m":0.01002,"d":"LAPTOP HP 15.6\" HP250 G10 CORE i5-1334U WIN11 8GB 512GB SSD ","l":"LAPTOP"},"14000020":{"p":0.2,"m":0.003,"d":"TOMATODO BOTELLA BASA KIDS SPORT TRITEX 430ML","l":"TOMATODO"},"11000013":{"p":7.0,"m":0.04751,"d":"IMPRESORA HP INK TANK 410 MULTIFUNCIONAL","l":"IMPRESORA"},"10000727":{"p":1.4,"m":0.00948,"d":"OLLA ARROCERA PRACTIKA NEGRO MOD.TRC-06 0.6L","l":"OLLA"},"15000089":{"p":0.2,"m":0.00026,"d":"MANDIL PUBLICITARIO CON BOLSILLO MATERIAL DRILL 80X50 CM CRI","l":"MANDIL"},"15000109":{"p":3.6,"m":0.02365,"d":"OLLA A PRESIÓN MIRAY OPM-60 6L","l":"OLLA"},"11000444":{"p":0.45,"m":0.00253,"d":"MANDO DUALSENSE PS5","l":"MANDO"},"15000020":{"p":1.2,"m":0.02259,"d":"OLLA PRESION 6 LT PRESS","l":"OLLA"},"12000240":{"p":2.2,"m":0.02246,"d":"SILLA DE CAMPING 4064-6","l":"SILLA"},"32000043":{"p":7.1,"m":0.02125,"d":"LLANTA 185/65R15 88H JOYROAD HP RX3 TL","l":"LLANTA"},"32000084":{"p":7.0,"m":0.02105,"d":"LLANTA 185/70R14 88H HABILEAD S801 TL","l":"LLANTA"},"15000136":{"p":2.0,"m":0.00525,"d":"TERMO KLIMBER 5 LITROS AZUL","l":"TERMO"},"32000042":{"p":7.0,"m":0.02016,"d":"LLANTA 185/70R13 86T JOYROAD TOUR RX1 TL","l":"LLANTA"},"32000101":{"p":7.2,"m":0.02016,"d":"LLANTA 185/70R13 86H OVATION VI-682 TL","l":"LLANTA"},"11001139":{"p":2.31,"m":0.01002,"d":"LAPTOP HP 15-FC0256LA 15.6\" AMD R5-7520U WIN11 16GB 512GB SS","l":"LAPTOP"},"12000036":{"p":1.0,"m":0.00441,"d":"PROTECTOR DE COLCHÓN IMPERMEABLE QUEEN","l":"PROTECTOR"},"10000129":{"p":11.0,"m":0.03906,"d":"TERMA JASA INSTANTANEA DE TIRO FORZADO 10LIT/GALON","l":"TERMA"},"10000482":{"p":5.4,"m":0.03851,"d":"FREIDORA DE AIRE ELECTROLUX EAF20 3.2L","l":"FREIDORA"},"12000048":{"p":0.4,"m":0.00348,"d":"SABANAS MICROFIBRA GRIS 1.5 PLAZA","l":"SABANAS"},"33000761":{"p":1.3,"m":0.0123,"d":"CASCO XL PEGATINA ROJA RCZ NEGRO BRILLANTE","l":"CASCO"},"19000144":{"p":6.0,"m":0.03558,"d":"BASE IMPRIMANTE BLANCO 4 GL","l":"BASE"},"32000039":{"p":7.1,"m":0.01761,"d":"LLANTA 175/70R13 82T HILO GENESIS XP1 TL","l":"LLANTA"},"12000033":{"p":0.6,"m":0.00438,"d":"PROTECTOR DE COLCHÓN IMPERMEABLE 1,5P","l":"PROTECTOR"},"12000023":{"p":1.4,"m":0.03499,"d":"CUBRELECHO AZUL 1 PLAZA","l":"CUBRELECHO"},"11000874":{"p":8.5,"m":0.0344,"d":"PC GAMER HAKU RGB AMD RYZEN 7 5700G 16GB 500GB SSD MONITOR C","l":"PC"},"15000100":{"p":2.2,"m":0.00374,"d":"SET X5 BOWLS ACERO INOXIDABLE MICA","l":"SET"},"10000326":{"p":4.0,"m":0.03245,"d":"ARROCERA OSTER 2.2L ROJA CKSTRC7030R053","l":"ARROCERA"},"10000891":{"p":14.2,"m":0.00161,"d":"TELEVISOR CAIXUN LED 55\" UHD 4K GOOGLE TV C55K4UG","l":"TELEVISOR"},"10000787":{"p":1.8,"m":0.01612,"d":"HIDROLAVADORA 160 VOLTIOS","l":"HIDROLAVADORA"},"15000013":{"p":0.6,"m":0.008,"d":"SET CONTENEDORES 800 ml x 3 PZAS","l":"SET"},"11000873":{"p":8.5,"m":0.03192,"d":"PC GAMER HAKU GREEN AMD RYZEN 5 5600GT 16GB 500GB SSD MONITO","l":"PC"},"11001151":{"p":1.26,"m":0.0035,"d":"TABLET LENOVO TAB 11.0\" 4GB 128GB CASE+PEN","l":"TABLET"},"11000056":{"p":0.001,"m":0.00524,"d":"PROTECTOR DE TECLADO","l":"PROTECTOR"},"12000232":{"p":1.6,"m":0.0078,"d":"ZAPATERA DESARMABLE DE 9 PISOS HCXB-9","l":"ZAPATERA"},"12000297":{"p":0.6,"m":0.00279,"d":"ARO DE LUZ LED DE 30CM + TRÍPODE DE 2MT","l":"ARO"},"35000017":{"p":2.1,"m":0.00605,"d":"PACK 6 VASOS CRISTAL+ 1 MANDIL PUBLICITARIO CRISTAL","l":"PACK"},"15000137":{"p":4.0,"m":0.01507,"d":"JUEGO DE OLLAS DE METAL 10 PIEZAS COD: 0703-222","l":"JUEGO"},"11000513":{"p":2.31,"m":0.01002,"d":"LAPTOP HP 15.6\" 15-FD0048LA CORE i5-1235U WIN11 8GB 512GB SS","l":"LAPTOP"},"11001104":{"p":2.31,"m":0.01002,"d":"LAPTOP HP 15.6\" 15-FC0279LA AMD R7-7730U WIN11 16GB 1TB SSD","l":"LAPTOP"},"10000174":{"p":1.2,"m":0.00748,"d":"HERVIDOR ELECT OSTER 1.7L ACERO INOX ROJO - BVSTKT673CR053","l":"HERVIDOR"},"11001152":{"p":4.885,"m":0.00992,"d":"CONSOLA PLAYSTATION 5 SLIM EDICION ESTANDAR BUNDLE COD:BLACK","l":"CONSOLA"},"10000756":{"p":3.6,"m":0.0293,"d":"ARROCERA OSTER 1.8L VAPOR ANTIAD SILVER CKSTRC10DFSKE053","l":"ARROCERA"},"10000733":{"p":33.8,"m":0.00323,"d":"TELEVISOR SAMSUNG UN75U8000FGXPE 75\" UHD/4K SMART TIZEN","l":"TELEVISOR"},"15000107":{"p":4.9,"m":0.02896,"d":"JUEGO DE OLLAS 11 PIEZAS ACERO INOXIDABLE CON 3 UTENSILIOS C","l":"JUEGO"},"11001134":{"p":3.25,"m":0.00952,"d":"LAPTOP GAMER ASUS V16 V3607VJ-RP067W WUXGA 16.0\" CORE i5-210","l":"LAPTOP"},"10000347":{"p":72.6,"m":0.00938,"d":"VITRINA EXHIBIDORA EN FRIO BORD EX309-M 309LT NEGRO/GRIS","l":"VITRINA"},"12000054":{"p":0.6,"m":0.00348,"d":"SABANAS MICROFIBRA GRIS OSCURO 1.5 PLAZAS","l":"SABANAS"},"19001079":{"p":1.4,"m":0.00925,"d":"SET DE HERRAMIENTAS MANUALES 116PZ REDLINE","l":"SET"},"10000632":{"p":2.6,"m":0.01381,"d":"EXTRACTOR TAURUS MOD LIQUAFRUITS PRO COMPACT","l":"EXTRACTOR"},"11011315":{"p":0.39,"m":0.00083,"d":"CELULAR MOTOROLA MOTO G06 6.88\" 4GB 128GB AZUL METALICO","l":"CELULAR"},"10000698":{"p":1.2,"m":0.00547,"d":"BATIDORA DE MANO MIRAY BM-17","l":"BATIDORA"},"11000826":{"p":3.81,"m":0.01357,"d":"LAPTOP GAMER ASUS TUF A15 15.6\" FA506NCG-HN184W FULL HD AMD ","l":"LAPTOP"},"15000119":{"p":0.6,"m":0.00898,"d":"SET X9 CONTENEDORES HERMÉTICOS","l":"SET"},"10000360":{"p":0.225,"m":0.0013,"d":"MINI ALTAVOZ INTELIGENTE CON BLUETOOTH CL-671","l":"MINI"},"12000239":{"p":69.4,"m":0.02572,"d":"CAMA PARAISO POCKET STAR CHARCOAL KING+2ALM+1PROT","l":"CAMA"},"35000040":{"p":1.0,"m":0.01247,"d":"PROYECTOR ANDROID HY300 PRO HD 1280 COD. N496 + PELOTA FIFA ","l":"PROYECTOR"},"33000325":{"p":1.3,"m":0.0123,"d":"CASCO DOBLE VISERA CON CHALINA RCZ NEGRO MATE","l":"CASCO"},"10000601":{"p":0.8,"m":0.00242,"d":"PLANCHA PRACTIKA A VAPOR MOD. NOVA","l":"PLANCHA"},"10000427":{"p":5.8,"m":0.02389,"d":"TELEVISOR SAMSUNG 32\" UN32T4202AGXPE HD SMART TIZEN","l":"TELEVISOR"},"10000739":{"p":5.2,"m":0.02356,"d":"TELEVISOR SAMSUNG UN32H5000FGXPE 32\" HD SMART TIZEN","l":"TELEVISOR"},"16000062":{"p":0.19,"m":0.00057,"d":"BILLETERA DE CUERO CREPIER EZRIEL NEGRO","l":"BILLETERA"},"10000766":{"p":0.8,"m":0.01127,"d":"PARLANTE RECARGABLE 39 CM ALTO D-P2401C","l":"PARLANTE"},"11001135":{"p":0.59,"m":0.00131,"d":"CELULAR TESLA EXPLR 9 8GB 256GB 6.78\" GRIS OSCURO C/CHASIS R","l":"CELULAR"},"11000834":{"p":1.361,"m":0.00318,"d":"TABLET LENOVO K11 4G LTE 11.0\" 8GB 128GB TECLADO+TAB PEN PLU","l":"TABLET"},"10000784":{"p":0.8,"m":0.00556,"d":"PARLANTE RECARGABLE BOCINA 4X2 KARAOKE GTS-1550","l":"PARLANTE"},"15000098":{"p":1.2,"m":0.01111,"d":"TETERA MIRAY TM-1020 3.5L","l":"TETERA"},"15000022":{"p":0.6,"m":0.01102,"d":"SARTEN ANTIAD. NOVA WOK 28 FACUSA","l":"SARTEN"},"10000854":{"p":1.6,"m":0.00725,"d":"TOSTADORA DE PAN ATMA EDICIÓN DE DISNEY MICKY MOUSE","l":"TOSTADORA"},"15000018":{"p":0.6,"m":0.0054,"d":"SARTEN ANTIADH.# 24 NEGRO 2.5MM C/ESPATULA ICHIMATSU","l":"SARTEN"},"12000043":{"p":0.6,"m":0.00348,"d":"SABANAS MICROFIBRA AZUL 1.5 PLAZA","l":"SABANAS"},"10000054":{"p":1.0,"m":0.00298,"d":"EXPRIMIDOR DE CITRICOS OSTER 18W  1L FPSTJU407W","l":"EXPRIMIDOR"},"10000871":{"p":1.625,"m":0.00518,"d":"CONSOLA NINTENDO SWITCH 2 256GB NEGRO BUNDLE MARIO KART WORL","l":"CONSOLA"},"11000820":{"p":2.31,"m":0.01031,"d":"LAPTOP GAMER HP VICTUS 15.6\" 15-FB3020LA FULL HD AMD R7-7445","l":"LAPTOP"},"10000704":{"p":2.2,"m":0.0206,"d":"ASPIRADORA MIRAY AM-861","l":"ASPIRADORA"},"11000407":{"p":4.885,"m":0.00992,"d":"CONSOLA PLAYSTATION 5 SLIM EDICION ESTANDAR CON JOYSTICK VER","l":"CONSOLA"},"33000472":{"p":1.3,"m":0.00976,"d":"CASCO AZUL CON VISERA MOVIL","l":"CASCO"},"11000230":{"p":1.08,"m":0.00273,"d":"TABLET LENOVO M10 4G LTE (3GEN) 10.1\" 4GB 64GB SIM CHIP","l":"TABLET"},"34000010":{"p":1.0,"m":0.00158,"d":"ACEITE LITTEN 20W50 API SL RONCO","l":"ACEITE"},"10000781":{"p":0.4,"m":0.0019,"d":"BATIDORA ELECTRICA DOU DOU MM-133","l":"BATIDORA"},"10000286":{"p":1.565,"m":0.00626,"d":"PARLANTE BLUETOOTH LG XBOOM GO XG7QBK NEGRO","l":"PARLANTE"},"10000862":{"p":0.79,"m":0.01803,"d":"MAQUINA COSEDORA INALAMBRICA GK9-900A RYU","l":"MAQUINA"},"11000844":{"p":3.81,"m":0.00898,"d":"LAPTOP GAMER ASUS V16 16.0\" V3607VH-RP012W WUGXA CORE i7-240","l":"LAPTOP"},"10000696":{"p":3.2,"m":0.01796,"d":"BALANZA COMERCIAL DIGITAL VENTUS B-40","l":"BALANZA"},"32000052":{"p":2.385,"m":0.01776,"d":"KIT CUBRE ASIENTOS PVC 10 PZAS + CUBREVOLANTE","l":"KIT"},"10000778":{"p":1.34,"m":0.00444,"d":"PARLANTE BLUETOOTH JBL CHARGE6 45W - NEGRO","l":"PARLANTE"},"10000723":{"p":1.0,"m":0.00583,"d":"SECADORA DE CABELLO SIEGEN SG-3012C16","l":"SECADORA"},"10000890":{"p":11.8,"m":0.00144,"d":"TELEVISOR CAIXUN LED 50\" UHD 4K GOOGLE TV C50K4UG","l":"TELEVISOR"},"11000559":{"p":0.4,"m":0.00843,"d":"MOCHILA TEROS PARA LAPTOP 15.6\" NBACTE9019BL AZUL/MARRON","l":"MOCHILA"},"11001101":{"p":0.4,"m":0.00816,"d":"MOCHILA HP PARA LAPTOP 15.6\" ACCHP1E7D6UT GRIS","l":"MOCHILA"},"10000050":{"p":3.0,"m":0.0163,"d":"LICUADORA OSTER SOHO KIWI 2VEL PB VIDRIO BLSTKAGKPB","l":"LICUADORA"},"11001132":{"p":2.535,"m":0.01606,"d":"LAPTOP GAMER LENOVO LOQ 15.6\" 83GS00EQLM FULL HD CORE i5-124","l":"LAPTOP"},"10000620":{"p":1.0,"m":0.00517,"d":"SECADORA DE CABELLO MIRAY SCM-20B","l":"SECADORA"},"10000167":{"p":1.2,"m":0.0038,"d":"BATIDORA DE MANO OSTER BLANCA - 2121757/FPSTHM3532053","l":"BATIDORA"},"11000669":{"p":0.485,"m":0.00108,"d":"CELULAR XIAOMI REDMI 15C 6.9\" 4GB 256GB NEGRO","l":"CELULAR"},"19000132":{"p":6.3,"m":0.00719,"d":"PINTURA AMERICAN COLORS SATINADO BLANCO 01 GALON - AMERICAN ","l":"PINTURA"},"11000662":{"p":0.435,"m":0.00092,"d":"CELULAR HONOR X6c 6.61\" 8GB 256GB OCEAN CYAN","l":"CELULAR"},"11000846":{"p":2.1,"m":0.00449,"d":"TABLET LENOVO IDEA TAB PRO 12.7\" 3K 8GB 256GB TECLADO+TAB PE","l":"TABLET"},"15000123":{"p":0.6,"m":0.01344,"d":"SET X3 SARTENES 20 CM +24 CM Y WOK 28 CM CARBÓN STEEL","l":"SET"},"19001124":{"p":0.8,"m":0.00192,"d":"MINI TALADRO PORTATIL CON ACCESORIOS","l":"MINI"},"10000898":{"p":2.36,"m":0.01289,"d":"PARLANTE BLUETOOTH AIWA AWS600BT 50W.RMS LUCES/FM/USB/AUX NE","l":"PARLANTE"},"10000714":{"p":0.46,"m":0.00318,"d":"CÁMARA INTERIOR DE SEGURIDAD TP-LINK TAPO C200","l":"CÁMARA"},"11000427":{"p":1260.0,"m":0.00305,"d":"TABLET LENOVO M11 4G LTE (3GEN) 11.0\" 8GB 128GB SIM CHIP CAS","l":"TABLET"},"16000030":{"p":0.25,"m":0.00167,"d":"POLO EPSON ESTANDAR","l":"POLO"},"11000814":{"p":0.785,"m":0.00194,"d":"TABLET LENOVO TAB ONE 8.7\" 4GB 128GB FOLIO","l":"TABLET"},"11000232":{"p":2.535,"m":0.01152,"d":"LAPTOP LENOVO 15.6\" 82H803DSLM WIN11 CORE I3-1115G4 8GB 256G","l":"LAPTOP"},"11000509":{"p":2.535,"m":0.01152,"d":"LAPTOP LENOVO IDEAPAD SLIM3i 83ER002HLM 15.6\" WIN11 CORE i5-","l":"LAPTOP"},"11000522":{"p":0.435,"m":0.00092,"d":"CELULAR HONOR X9b 5G 6.78\" 8GB 512GB NEGRO","l":"CELULAR"},"10000125":{"p":1.4,"m":0.00552,"d":"SANDWICHERA OSTER COMPACTA CKSTSM2885","l":"SANDWICHERA"},"35000037":{"p":0.6,"m":0.00543,"d":"CÁMARA DE INTERIOR DE SEGURIDAD TP-LINK TAPO C200 + REGALO M","l":"CÁMARA"},"10000304":{"p":1.56,"m":0.00527,"d":"CONSOLA NINTENDO SWITCH OLED 64GB BLANCO VERSION JAPON","l":"CONSOLA"},"11000870":{"p":2.535,"m":0.01014,"d":"LAPTOP LENOVO 14.0\" 21MR00CJLM WUXGA CORE ULTRA 7-155H/IA WI","l":"LAPTOP"},"11001103":{"p":2.535,"m":0.01014,"d":"LAPTOP 2en1 LENOVO 14\" TACTIL 83DR007QLM AMD R7-8845H WIN11 ","l":"LAPTOP"},"11000607":{"p":2.31,"m":0.01002,"d":"LAPTOP HP 15.6\" 15-FC0031LA AMD R7-7730U WIN11 16GB 1TB SSD","l":"LAPTOP"},"11000685":{"p":2.31,"m":0.01002,"d":"LAPTOP HP 15.6\" HP250 G10 CORE i7-1355U WIN11 16GB 1TB SSD","l":"LAPTOP"},"11000851":{"p":2.31,"m":0.01002,"d":"LAPTOP HP 14.0\" 14-EP1001LA FULL HD CORE ULTRA 5-125H/IA 8GB","l":"LAPTOP"},"15000094":{"p":0.8,"m":0.00978,"d":"SET DE CUCHILLOS + TIJERAS MIRAY SCM-3 8 PZS","l":"SET"},"33000471":{"p":1.3,"m":0.00976,"d":"CASCO GRIS CON VISERA MOVIL","l":"CASCO"},"11000765":{"p":0.485,"m":0.00108,"d":"CELULAR XIAOMI REDMI 15C 6.9\" 4GB 256GB AZUL","l":"CELULAR"},"11001004":{"p":0.485,"m":0.00108,"d":"CELULAR XIAOMI REDMI NOTE 15 6.77\" 8GB 256GB NEGRO","l":"CELULAR"},"10000708":{"p":0.6,"m":0.00948,"d":"PICATODO MIRAY PTM-19 2 L","l":"PICATODO"},"11011191":{"p":0.435,"m":0.00086,"d":"TABLET SAMSUNG GALAXY TAB A11 8.7\" 4GB 64GB SM-X133NZAAPEO G","l":"TABLET"},"10000429":{"p":0.21,"m":0.00054,"d":"MINI PARLANTE BLUETOOTH MINI MUSIC MODELO  S300 LUZ RGB","l":"MINI"},"10000793":{"p":0.53,"m":0.00154,"d":"PARLANTE INTELIGENTE AMAZON CON ALEXA ECHO DOT 5 AZUL","l":"PARLANTE"},"11000419":{"p":2.535,"m":0.00152,"d":"LAPTOP LENOVO 15.6\" 82XB003MLM WIN11 CORE I3-N305 8GB 512GB ","l":"LAPTOP"},"11000142":{"p":3.25,"m":0.00898,"d":"LAPTOP ASUS 14\"  M415DA-EB929W FULL HD RYZEN 7-3700U WIN11 1","l":"LAPTOP"},"11000853":{"p":3.25,"m":0.00898,"d":"LAPTOP ASUS 15.6\" X1502ZA-EJ2466W CORE i7-12700H WIN11 16GB ","l":"LAPTOP"},"11000996":{"p":3.25,"m":0.00898,"d":"LAPTOP ASUS 15.6\" X1502VA-BQ903W CORE i5-13420H WIN11 8GB 51","l":"LAPTOP"},"11001033":{"p":2.535,"m":0.00898,"d":"LAPTOP ASUS VIVOBOOK S16 16.0\" M3607HA-RP064W WUXGA AMD RYZE","l":"LAPTOP"},"32000298":{"p":0.4,"m":0.00878,"d":"CARPA INFANTIL 130X102CM ROSA","l":"CARPA"},"11000574":{"p":0.435,"m":0.00097,"d":"CELULAR HONOR X8c 6.7\" 8GB 256GB NEGRO MEDIANOCHE","l":"CELULAR"},"10000721":{"p":0.8,"m":0.00218,"d":"PLANCHA PARA CABELLO GAMA ELEGANCE CHIA","l":"PLANCHA"},"11000668":{"p":0.485,"m":0.00108,"d":"CELULAR XIAOMI REDMI 15C 6.9\" 4GB 128GB NEGRO","l":"CELULAR"},"11000701":{"p":0.485,"m":0.00108,"d":"CELULAR XIAOMI REDMI 15 6.9\" 8GB 256GB NEGRO","l":"CELULAR"},"11001169":{"p":1.05,"m":0.00288,"d":"TABLET LENOVO TAB 4G LTE 10.1\" 4GB 128GB FOLIO","l":"TABLET"},"11000885":{"p":0.39,"m":0.00069,"d":"CELULAR MOTOROLA MOTO G35 5G 6.7\" 4GB 256GB NEGRO","l":"CELULAR"},"11000972":{"p":0.36,"m":0.00083,"d":"CELULAR MOTOROLA MOTO G06 6.88\" 4GB 128GB VERDE","l":"CELULAR"},"10000640":{"p":3.2,"m":0.008,"d":"PARLANTE BLUETOOTH LG XBOOM GO XG8T 120W - NEGRO","l":"PARLANTE"},"12000032":{"p":0.4,"m":0.00392,"d":"PROTECTOR DE COLCHÓN IMPERMEABLE 1P","l":"PROTECTOR"},"15000092":{"p":0.8,"m":0.00196,"d":"SET DE CUBIERTOS MIRAY SCAM-16 16 PZAS","l":"SET"},"11000117":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 13 6.1\" 128GB BLANCO","l":"CELULAR"},"11000709":{"p":0.435,"m":0.00097,"d":"CELULAR HONOR X5c 6.74\" 4GB 128GB CIAN OCEANO","l":"CELULAR"},"11000737":{"p":0.45,"m":0.00092,"d":"CELULAR ZTE NUBIA MUSIC 6.6\" 4GB 128GB NARANJA","l":"CELULAR"},"10000812":{"p":0.16,"m":0.00045,"d":"AUDÍFONO SUPERBUDS 15 BT15 CON PANTALLA DIGITAL","l":"AUDÍFONO"},"11000868":{"p":0.39,"m":0.00076,"d":"CELULAR ZTE BLADE A56 PRO 6.75\" 4GB 128GB GRIS","l":"CELULAR"},"11001136":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 12 PRO MAX 6.7\" 256GB AZUL nanoSIM REAC","l":"CELULAR"},"15000009":{"p":0.9,"m":0.00036,"d":"PAR DE PILA TIPO D","l":"PAR"},"32000068":{"p":13.6,"m":0.00677,"d":"BATERIAS ETNA PRO FF-13 PRO EXTREMA 70AH/560CCA","l":"BATERIAS"},"10000771":{"p":0.8,"m":0.0067,"d":"PARLANTE RECARGABLE 32CM  CON LUZ LED  GTS-2151","l":"PARLANTE"},"10000755":{"p":0.785,"m":0.00223,"d":"PARLANTE BLUETOOTH JBL FLIP7 35W - NEGRO","l":"PARLANTE"},"16000061":{"p":0.175,"m":0.00051,"d":"BILLETERA CREPIER SALOMÉ MEDIANO NEGRO","l":"BILLETERA"},"11000442":{"p":0.085,"m":0.00034,"d":"JUEGO PLAYSTATION 5 MARVEL SPIDERMAN 2 LATAM","l":"JUEGO"},"19001121":{"p":1.6,"m":0.00648,"d":"CAJA DE SEGURIDAD FIXSER PARA DINERO CON LLAVE TAMAÑO MEDIAN","l":"CAJA"},"11000077":{"p":0.55,"m":0.00646,"d":"TABLET ADVANCE SP5731 10.1\" 32GB 2G RAM","l":"TABLET"},"15000116":{"p":0.8,"m":0.0064,"d":"SET TAPERS HERMÉTICOS 7 PIEZAS REYPLAST","l":"SET"},"12000047":{"p":0.4,"m":0.00308,"d":"SABANAS MICROFIBRA GRIS 1 PLAZA","l":"SABANAS"},"11000997":{"p":0.435,"m":0.00076,"d":"CELULAR HONOR X5c 6.74\" 4GB 128GB PLATA METEORO","l":"CELULAR"},"11000699":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 14 PRO MAX 6.7\" 256GB NEGRO ESPACIAL eS","l":"CELULAR"},"11000609":{"p":0.435,"m":0.00097,"d":"CELULAR HONOR X6c 6.61\" 6GB 256GB AZUL","l":"CELULAR"},"11000702":{"p":0.435,"m":0.00097,"d":"CELULAR HONOR X5c 6.74\" 4GB 128GB NEGRO","l":"CELULAR"},"19000980":{"p":2.4,"m":0.00578,"d":"SIERRA CALADORA 500W GST 680 BOSCH","l":"SIERRA"},"11001128":{"p":0.77,"m":0.00112,"d":"TABLET SAMSUNG GALAXY TAB A11 PLUS 11.0\" 6GB 128GB SM-X230NZ","l":"TABLET"},"11000301":{"p":0.485,"m":0.0011,"d":"CELULAR XIAOMI REDMI NOTE 13 PRO PLUS 5G 6.67\" 12GB 512GB NE","l":"CELULAR"},"11001133":{"p":0.485,"m":0.00108,"d":"CELULAR XIAOMI REDMI NOTE 15 PRO 5G 6.83\" 8GB 256GB AZUL","l":"CELULAR"},"11000686":{"p":0.9,"m":0.0026,"d":"TABLET APPLE IPAD 11GEN. 11.0\" 128GB AZUL","l":"TABLET"},"11011468":{"p":0.65,"m":0.0017,"d":"PROYECTOR ANDROID HY300 PRO HD 1280 COD. N496","l":"PROYECTOR"},"32000067":{"p":4.635,"m":0.00508,"d":"COBERTOR PARA AUTOMÓVIL TALLA L","l":"COBERTOR"},"11001157":{"p":0.6,"m":0.00025,"d":"CASE PROTECTOR TRANSPARANTE C/MICA DE PANTALLA COMPATIBLE IP","l":"CASE"},"12000051":{"p":0.8,"m":0.00476,"d":"SABANAS MICROFIBRA GRIS KING","l":"SABANAS"},"11000723":{"p":0.385,"m":0.00094,"d":"CELULAR XIAOMI REDMI A5 6.88\" 4GB 128GB DORADO ARENA","l":"CELULAR"},"10000855":{"p":1.2,"m":0.00077,"d":"CAFETERA PERSONAL ATMA EDICIÓN DISNEY MICKY MOUSE INCLUYE TA","l":"CAFETERA"},"11001155":{"p":0.33,"m":0.00092,"d":"CELULAR ZTE BLADE V60 SMART 6.6\" 4GB 256GB BLANCO","l":"CELULAR"},"11000575":{"p":0.255,"m":0.00045,"d":"CELULAR SAMSUNG GALAXY A26 5G 6.7\" 8GB 256GB NEGRO S/CARGADO","l":"CELULAR"},"11000700":{"p":0.255,"m":0.00045,"d":"CELULAR SAMSUNG GALAXY A07 6.7\" 4GB 128GB NEGRO S/CARGADOR","l":"CELULAR"},"10000359":{"p":0.45,"m":0.00448,"d":"ASPIRADORA PORTÁTIL DE 12V PARA AUTO","l":"ASPIRADORA"},"11001129":{"p":0.77,"m":0.00112,"d":"TABLET SAMSUNG GALAXY TAB S10 LITE 10.9\" 6GB 128GB SM-X400NZ","l":"TABLET"},"11000899":{"p":0.07,"m":0.00016,"d":"CARGADOR DE CELULAR COMPATIPLE IPHONE 11-17 USB C 20W BLANCO","l":"CARGADOR"},"11001005":{"p":0.485,"m":0.0011,"d":"CELULAR XIAOMI REDMI NOTE 15 PRO 6.7\" 8GB 256GB NEGRO","l":"CELULAR"},"11000530":{"p":0.49,"m":0.00109,"d":"CELULAR XIAOMI POCO F6 5G 6.67\" 8GB 256GB NEGRO","l":"CELULAR"},"11001006":{"p":0.485,"m":0.00108,"d":"CELULAR XIAOMI REDMI NOTE 15 PRO 5G 6.83\" 8GB 256GB NEGRO","l":"CELULAR"},"11001007":{"p":0.485,"m":0.00108,"d":"CELULAR XIAOMI REDMI NOTE 15 PRO PLUS 5G 6.83\" 8GB 256GB NEG","l":"CELULAR"},"11000698":{"p":0.435,"m":0.00107,"d":"CELULAR APPLE IPHONE 15 PRO MAX 6.7\" 256GB NEGRO TITANIO eSI","l":"CELULAR"},"11000681":{"p":0.33,"m":0.00084,"d":"CELULAR INFINIX SMART10 6.67\" 4GB 128GB SILVER","l":"CELULAR"},"11000707":{"p":0.33,"m":0.00084,"d":"CELULAR INFINIX SMART10 6.67\" 4GB 256GB SILVER","l":"CELULAR"},"11001121":{"p":0.33,"m":0.00084,"d":"CELULAR INFINIX HOT 60 X6726 6.7\" 4GB 256GB SILVER","l":"CELULAR"},"11001122":{"p":0.33,"m":0.00084,"d":"CELULAR INFINIX HOT 60 X6726 6.7\" 4GB 256GB NEGRO","l":"CELULAR"},"11000441":{"p":0.085,"m":0.00034,"d":"JUEGO PLAYSTATION 5 EA SPORTS FC25 LATAM","l":"JUEGO"},"15000016":{"p":0.8,"m":0.00409,"d":"CAFETERA ITALIANA ALUMINIO 9 TZ   MOD. BHP A009","l":"CAFETERA"},"10000368":{"p":1.05,"m":0.00201,"d":"AFEITADORA MIRAY - AFM-31","l":"AFEITADORA"},"10000163":{"p":7.0,"m":0.004,"d":"CAMPANA EXTRACTORA INDURAMA  CEI 602 NE - 60 CM","l":"CAMPANA"},"11000903":{"p":0.6,"m":0.00025,"d":"CASE PROTECTOR TRANSPARANTE C/MICA DE PANTALLA COMPATIBLE IP","l":"CASE"},"11000861":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 13 PRO 6.1\" 256GB DORADO nanoSIM REACON","l":"CELULAR"},"11000601":{"p":0.325,"m":0.00097,"d":"CELULAR APPLE IPHONE 16 PRO MAX 6.9\" 256GB DESIERTO TITANIO ","l":"CELULAR"},"11000682":{"p":0.435,"m":0.00097,"d":"CELULAR HONOR X6c 6.61\" 6GB 256GB NEGRO","l":"CELULAR"},"11001123":{"p":0.435,"m":0.00097,"d":"CELULAR HONOR X8d 6.77\" 8GB 256GB NEGRO","l":"CELULAR"},"11001138":{"p":0.435,"m":0.00097,"d":"CELULAR HONOR MAGIC8 LITE 5G 6.79\" 8GB 512GB NEGRO MEDIANOCH","l":"CELULAR"},"11000667":{"p":0.415,"m":0.00076,"d":"CELULAR MOTOROLA MOTO EDGE60 FUSION 5G 6.7\" 8GB 256GB AZUL","l":"CELULAR"},"11001130":{"p":0.415,"m":0.00076,"d":"CELULAR MOTOROLA MOTO G86 POWER 5G 6.5\" 8GB 256GB CEREZA","l":"CELULAR"},"11000746":{"p":0.45,"m":0.00076,"d":"CELULAR ZTE BLADE V70 6.7\" 8GB 256GB GRIS","l":"CELULAR"},"32000079":{"p":0.475,"m":0.00366,"d":"VENTILADOR AUTO 360 TURBO GIRATORIO GRADUABLE PORTÁTIL 12v","l":"VENTILADOR"},"11000437":{"p":0.62,"m":0.0009,"d":"CELULAR MOTOROLA MOTO EDGE50 PRO 5G 6.7\" 12GB 512GB NEGRO EC","l":"CELULAR"},"11000563":{"p":0.31,"m":0.00045,"d":"CELULAR SAMSUNG GALAXY A56 5G 6.6\" 8GB 256GB NEGRO S/CARGADO","l":"CELULAR"},"10000498":{"p":33.4,"m":0.00344,"d":"TELEVISOR SAMSUNG QLED QN70Q65DAGXPE 70\" UHD/4K SMART HUB C/","l":"TELEVISOR"},"10000909":{"p":1.1,"m":0.0017,"d":"PARLANTE PORTÁTIL C/BLUETOOTH MIRAY PMBT-93N NEGRO","l":"PARLANTE"},"15000097":{"p":0.8,"m":0.00337,"d":"SET PROFESIONAL DE UTENSILIOS PARRILLEROS 5 PIEZAS GRILLCORP","l":"SET"},"11000787":{"p":0.435,"m":0.00112,"d":"CELULAR HONOR 400 5G 6.55\" 12GB 512GB NEGRO","l":"CELULAR"},"11000123":{"p":0.485,"m":0.0011,"d":"CELULAR XIAOMI REDMI NOTE 10 Pro 6GB 128GB GRAY","l":"CELULAR"},"11000360":{"p":0.435,"m":0.0011,"d":"CELULAR HONOR MAGIC6 LITE 5G 6.78\" 8GB 256GB VERDE ESMERALDA","l":"CELULAR"},"11000500":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 16 6.1\" 8GB 128GB NEGRO nanoSIM","l":"CELULAR"},"11000531":{"p":0.49,"m":0.00109,"d":"CELULAR XIAOMI POCO F6 PRO 5G 6.67\" 12GB 512GB NEGRO","l":"CELULAR"},"19000006":{"p":0.9,"m":0.00328,"d":"TALADRO BOSCH ATORNILLADOR 1/4\" 12V INALÁMBRICO  1PIEZA","l":"TALADRO"},"11001143":{"p":0.485,"m":0.00108,"d":"CELULAR XIAOMI REDMI A7 PRO 6.9\" 4GB 128GB NEGRO","l":"CELULAR"},"11000900":{"p":0.6,"m":0.00025,"d":"CASE PROTECTOR TRANSPARANTE C/MICA DE PANTALLA COMPATIBLE IP","l":"CASE"},"10000659":{"p":0.59,"m":0.00324,"d":"BARRA DE SONIDO MERTEC MT-006B CON BRANDEADO DE BACKUS PILSE","l":"BARRA"},"10000743":{"p":0.59,"m":0.00324,"d":"BARRA DE SONIDO MERTEC MT-006B CON BRANDEADO DE GOLDEN","l":"BARRA"},"10000746":{"p":0.59,"m":0.00324,"d":"BARRA DE SONIDO MERTEC MT-006B CON BRANDEADO MIKE´S","l":"BARRA"},"11000757":{"p":0.45,"m":0.0008,"d":"CELULAR ZTE BLADE V70 MAX 6.9\" 4GB 256GB VERDE","l":"CELULAR"},"34000007":{"p":1.0,"m":0.00158,"d":"ACEITE DOBLE A 4T SAE 20W-50 1.2 LT","l":"ACEITE"},"34000009":{"p":1.0,"m":0.00158,"d":"ACEITE ZONGSHEN DE 1 LITRO","l":"ACEITE"},"11000945":{"p":0.255,"m":0.00045,"d":"CELULAR SAMSUNG GALAXY A17 6.7\" 8GB 256GB NEGRO S/CARGADOR","l":"CELULAR"},"12000042":{"p":0.4,"m":0.00308,"d":"SABANAS MICROFIBRA AZUL 1 PLAZA","l":"SABANAS"},"11000850":{"p":1.245,"m":0.00305,"d":"TABLET LENOVO M11 11.0\" 4GB 128GB CASE+PEN","l":"TABLET"},"11000573":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 14 6.1\" 128GB NEGRO eSIM - REACONDICION","l":"CELULAR"},"11000604":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 13 6.1\" 128GB AZUL nanoSIM - REACONDICI","l":"CELULAR"},"11000863":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 13 PRO 6.1\" 256GB PLATA nanoSIM REACOND","l":"CELULAR"},"11001079":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 15 6.1\" 128GB NEGRO eSIM REACONDICIONAD","l":"CELULAR"},"11000749":{"p":0.435,"m":0.00097,"d":"CELULAR HONOR 400 LITE 5G 6.7\" 12GB 256GB VERDE MARINO","l":"CELULAR"},"11000733":{"p":0.435,"m":0.00097,"d":"CELULAR HONOR X8c 6.7\" 8GB 256GB MORADO NUBE","l":"CELULAR"},"11000734":{"p":0.315,"m":0.00072,"d":"CELULAR ZTE BLADE A35E 6.52\" 2GB 64GB VERDE","l":"CELULAR"},"11000119":{"p":0.485,"m":0.00096,"d":"CELULAR XIAOMI REDMI NOTE 12 6.67\" 4GB 128GB GRIS","l":"CELULAR"},"11001078":{"p":0.31,"m":0.0001,"d":"CELULAR SAMSUNG GALAXY A07 6.7\" 4GB 128GB NEGRO C/CARGADOR 1","l":"CELULAR"},"32000057":{"p":1.4,"m":0.00281,"d":"Arrancador Batería Auto Powerbank Martillo Linterna Cargador","l":"Arrancador"},"11000760":{"p":6.2,"m":0.0009,"d":"CELULAR MOTOROLA MOTO EDGE50 5G 6.7\" 12GB 256GB GRIS CARBON","l":"CELULAR"},"11000865":{"p":0.55,"m":0.00013,"d":"CARGADOR DE CELULAR SAMSUNG USB C CARGA SUPER RAPIDA 15W NEG","l":"CARGADOR"},"11000448":{"p":0.65,"m":0.0003,"d":"CARGADOR DE CELULAR SAMSUNG USB C CARGA SUPER RAPIDA 25W NEG","l":"CARGADOR"},"10000849":{"p":0.15,"m":0.00037,"d":"PARLANTE KAPERH MINI BASS 1 COD P38","l":"PARLANTE"},"10000086":{"p":3.25,"m":0.00258,"d":"LAPTOP ASUS 15.6\" X543MA-GQ1042T CELERON 4GB 500GB W10","l":"LAPTOP"},"10000468":{"p":0.028,"m":0.00254,"d":"TERMO B-T-71","l":"TERMO"},"11000901":{"p":0.6,"m":0.00025,"d":"CASE PROTECTOR TRANSPARANTE C/MICA DE PANTALLA COMPATIBLE IP","l":"CASE"},"11001149":{"p":0.36,"m":0.00083,"d":"CELULAR MOTOROLA MOTO G17 6.8\" 4GB 256GB ARANDANO","l":"CELULAR"},"32000031":{"p":0.885,"m":0.00248,"d":"AUTORADIO CON MASCARA EXTRAIBLE PUERTO USB, BLUETOOH","l":"AUTORADIO"},"11000372":{"p":2.535,"m":0.0024,"d":"LAPTOP GAMER LENOVO LOQ 15.6\" 82XV00T8LM FULL HD CORE I5-124","l":"LAPTOP"},"32000297":{"p":0.2,"m":0.0023,"d":"SET DE PULSERAS MODELOS SURTIDOS","l":"SET"},"11001159":{"p":0.415,"m":0.00076,"d":"CELULAR MOTOROLA MOTO G77 5G 6.8\" 8GB 256GB VERDE ESMERALDA","l":"CELULAR"},"11000568":{"p":0.31,"m":0.00045,"d":"CELULAR SAMSUNG GALAXY A36 5G 6.6\" 8GB 256GB NEGRO S/CARGADO","l":"CELULAR"},"11000807":{"p":0.49,"m":0.00109,"d":"CELULAR XIAOMI POCO X7 PRO 5G 6.67\" 12GB 512GB NEGRO","l":"CELULAR"},"11001144":{"p":0.49,"m":0.00109,"d":"CELULAR XIAOMI POCO X8 PRO 5G 6.59\" 8GB 256GB NEGRO","l":"CELULAR"},"11001156":{"p":0.49,"m":0.00109,"d":"CELULAR XIAOMI POCO C85 6.88\" 8GB 256GB NEGRO","l":"CELULAR"},"11000716":{"p":0.485,"m":0.00108,"d":"CELULAR XIAOMI REDMI 15C 6.9\" 8GB 256GB NEGRO","l":"CELULAR"},"11000447":{"p":0.485,"m":0.00103,"d":"CELULAR XIAOMI 14T PRO 5G 6.67\" 12GB 512GB NEGRO","l":"CELULAR"},"11001105":{"p":0.39,"m":0.00098,"d":"CELULAR INFINIX HOT 60 PRO+ X6886 6.78\" 8GB 256GB NEGRO","l":"CELULAR"},"11000050":{"p":0.31,"m":0.00066,"d":"CELULAR SAMSUNG GALAXY A13 4GB 64GB NEGRO","l":"CELULAR"},"11000894":{"p":0.23,"m":0.00097,"d":"CELULAR APPLE IPHONE 17 PRO MAX 6.9\" 12GB 256GB AZUL PROFUND","l":"CELULAR"},"11000912":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 15 PRO 6.1\" 256GB NEGRO TITANIO eSIM RE","l":"CELULAR"},"11001080":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 15 PLUS 6.7\" 128GB NEGRO eSIM REACONDIC","l":"CELULAR"},"11001081":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 16 6.1\" 8GB 128GB NEGRO eSIM REACONDICI","l":"CELULAR"},"11001082":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 16 PRO MAX 6.9\" 512GB DESIERTO TITANIO ","l":"CELULAR"},"11001137":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 15 PRO 6.1\" 256GB AZUL TITANIO eSIM REA","l":"CELULAR"},"11000540":{"p":0.435,"m":0.00097,"d":"CELULAR HONOR X7c 6.77\" 8GB 256GB VERDE FORESTA","l":"CELULAR"},"11000886":{"p":0.485,"m":0.00097,"d":"CELULAR XIAOMI 15T 5G 6.83\" 12GB 512GB NEGRO","l":"CELULAR"},"11000954":{"p":0.485,"m":0.00097,"d":"CELULAR XIAOMI 15T 5G 6.83\" 12GB 512GB GRIS","l":"CELULAR"},"11001003":{"p":0.435,"m":0.00097,"d":"CELULAR HONOR MAGIC8 LITE 5G 6.79\" 8GB 256GB NEGRO MEDIANOCH","l":"CELULAR"},"11001091":{"p":0.435,"m":0.00097,"d":"CELULAR HONOR X9c SMART 5G 6.7\" 8GB 256GB AZUL","l":"CELULAR"},"11001120":{"p":0.435,"m":0.00097,"d":"CELULAR HONOR X9c SMART 5G 6.7\" 8GB 256GB BLANCO","l":"CELULAR"},"11000902":{"p":0.6,"m":0.00028,"d":"CASE PROTECTOR TRANSPARANTE C/MICA DE PANTALLA COMPATIBLE IP","l":"CASE"},"11000576":{"p":0.05,"m":0.00194,"d":"AUDIFONO BLUETOOTH IN EAR TEROS TE-8072W BLANCO/NEGRO","l":"AUDIFONO"},"10000518":{"p":24.4,"m":0.00028,"d":"TELEVISOR HISENSE 65A6NA 65\" UHD/4K SMART GOOGLE TV","l":"TELEVISOR"},"11000528":{"p":0.49,"m":0.00096,"d":"CELULAR XIAOMI POCO C75 6.88\" 8GB 256GB NEGRO","l":"CELULAR"},"11000665":{"p":0.435,"m":0.00095,"d":"CELULAR HONOR 400 LITE 5G 6.7\" 8GB 256GB GRIS","l":"CELULAR"},"11001119":{"p":0.435,"m":0.00092,"d":"CELULAR HONOR MAGIC7 LITE 5G 6.78\" 8GB 256GB JADE CIAN","l":"CELULAR"},"11001131":{"p":0.31,"m":0.00045,"d":"CELULAR SAMSUNG GALAXY A07 6.7\" 4GB 128GB VIOLETA C/CARGADOR","l":"CELULAR"},"11000564":{"p":0.31,"m":0.00045,"d":"CELULAR SAMSUNG GALAXY A56 5G 6.6\" 8GB 256GB ROSADO S/CARGAD","l":"CELULAR"},"13000007":{"p":1.0,"m":0.00175,"d":"LÁMPARA DE EMERGENCIA SLIM OPALUX 9101-220 LED","l":"LÁMPARA"},"15000059":{"p":0.34,"m":0.00175,"d":"SET DE CUBIERTOS 16 PIEZAS FACUSA MOD URBAN","l":"SET"},"11000105":{"p":2.535,"m":0.00174,"d":"LAPTOP NOTEBOOK HP 15-DW1073LA 15.6\" 8G 256GB HD CORE i7 - 1","l":"LAPTOP"},"11000266":{"p":0.085,"m":0.00034,"d":"JUEGO PLAYSTATION 5 EA SPORTS FC24 LATAM","l":"JUEGO"},"11000658":{"p":0.39,"m":0.00083,"d":"CELULAR MOTOROLA MOTO G15 6.72\" 4GB 256GB GRIS","l":"CELULAR"},"10000709":{"p":0.675,"m":0.00165,"d":"PARLANTE INTELIGENTE AMAZON ECHO SHOW 5 (3RA GEN) NEGRO","l":"PARLANTE"},"11000503":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 16 6.1\" 8GB 128GB VERDE AZULADO nanoSIM","l":"CELULAR"},"11000691":{"p":0.18,"m":0.00041,"d":"CELULAR APPLE IPHONE 17 6.3\" 8GB 256GB LAVANDA eSIM","l":"CELULAR"},"10000910":{"p":0.125,"m":0.00027,"d":"SMARTWATCH RELOJ SMART MIRAY RSM-013N/V68 NEGRO","l":"SMARTWATCH"},"11000590":{"p":0.375,"m":0.00052,"d":"CELULAR SAMSUNG GALAXY S25 ULTRA 5G 6.9\" 12GB 512GB AZUL PLA","l":"CELULAR"},"11000168":{"p":2.31,"m":0.00155,"d":"LAPTOP HP 15.6\" 15-DY5010LA CORE I7-1255U WIN11 12GB 512GB S","l":"LAPTOP"},"15000088":{"p":0.2,"m":0.00026,"d":"MANDIL PUBLICITARIO CON BOLSILLO MATERIAL DRILL 80X50 CM PIL","l":"MANDIL"},"32000003":{"p":0.625,"m":0.00154,"d":"AUTORADIO SONY USB/AUX DSX-A110U","l":"AUTORADIO"},"11000941":{"p":0.415,"m":0.00076,"d":"CELULAR MOTOROLA MOTO G86 POWER 5G 6.5\" 8GB 256GB AZUL","l":"CELULAR"},"11001158":{"p":0.415,"m":0.00076,"d":"CELULAR MOTOROLA MOTO G67 5G 6.8\" 4GB 256GB GRIS","l":"CELULAR"},"11000895":{"p":0.41,"m":0.00051,"d":"CELULAR APPLE IPHONE 17 PRO MAX 6.9\" 12GB 256GB NARANJA COSM","l":"CELULAR"},"11000897":{"p":0.41,"m":0.00051,"d":"CELULAR APPLE IPHONE 17 PRO MAX 6.9\" 12GB 256GB AZUL PROFUND","l":"CELULAR"},"11000898":{"p":0.41,"m":0.00051,"d":"CELULAR APPLE IPHONE 17 PRO MAX 6.9\" 12GB 256GB NARANJA COSM","l":"CELULAR"},"11000081":{"p":0.39,"m":0.00075,"d":"CELULAR MOTOROLA G52 6GB 128GB NEGRO","l":"CELULAR"},"10000919":{"p":0.125,"m":0.00048,"d":"RECORTADOR DE CABELLO YT-10","l":"RECORTADOR"},"11000720":{"p":0.255,"m":0.00045,"d":"CELULAR SAMSUNG GALAXY A06 6.7\" 4GB 128GB NEGRO S/CARGADOR","l":"CELULAR"},"11000569":{"p":0.31,"m":0.00045,"d":"CELULAR SAMSUNG GALAXY A36 5G 6.6\" 8GB 256GB BLANCO S/CARGAD","l":"CELULAR"},"11000332":{"p":0.07,"m":0.00016,"d":"CARGADOR DE CELULAR APPLE IPHONE 11-15 USB C 20W MHJA3AM/A B","l":"CARGADOR"},"10000776":{"p":0.225,"m":0.0013,"d":"PARLANTE TOUCH DE COLORES","l":"PARLANTE"},"11000382":{"p":0.485,"m":0.00126,"d":"CELULAR XIAOMI MI 12 PRO 5G 6.73\" 12GB 256GB GRIS","l":"CELULAR"},"11000409":{"p":0.485,"m":0.00126,"d":"CELULAR XIAOMI MI 12 PRO 5G 6.73\" 12GB 256GB AZUL","l":"CELULAR"},"11000192":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 14 6.1\" 128GB NEGRO SIM CHIP","l":"CELULAR"},"11000254":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 15 6.1\" 128GB AZUL SIM CHIP","l":"CELULAR"},"11000688":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 17 6.3\" 8GB 256GB BLANCO eSIM","l":"CELULAR"},"10000807":{"p":0.55,"m":0.00122,"d":"PARLANTE PORTÁTIL C/BLUETOOTH MIRAY PMBT-81N NEGRO","l":"PARLANTE"},"11000049":{"p":0.485,"m":0.0011,"d":"CELULAR XIAOMI REDMI NOTE 10S 6+128 BLANCO","l":"CELULAR"},"11000146":{"p":0.435,"m":0.0011,"d":"CELULAR HONOR X8A 8GB 128GB SILVER","l":"CELULAR"},"11000303":{"p":0.435,"m":0.0011,"d":"CELULAR HONOR X8b 6.7\" 8GB 256GB NEGRO","l":"CELULAR"},"11000336":{"p":0.485,"m":0.0011,"d":"CELULAR XIAOMI REDMI NOTE 13 6.67\" 8GB 256GB NEGRO","l":"CELULAR"},"11000339":{"p":0.435,"m":0.0011,"d":"CELULAR XIAOMI 13T 5G 6.67\" 12GB 256GB VERDE","l":"CELULAR"},"11000402":{"p":0.485,"m":0.0011,"d":"CELULAR XIAOMI REDMI 13 6.79\" 8GB 256GB NEGRO","l":"CELULAR"},"11000433":{"p":0.435,"m":0.0011,"d":"CELULAR HONOR MAGIC6 LITE 5G 6.78\" 8GB 256GB TITANIUM SILVER","l":"CELULAR"},"11000671":{"p":0.485,"m":0.0011,"d":"CELULAR XIAOMI REDMI NOTE 14s 6.67\" 8GB 256GB AZUL OCEANO","l":"CELULAR"},"11000670":{"p":0.485,"m":0.0011,"d":"CELULAR XIAOMI REDMI NOTE 14s 6.67\" 8GB 256GB NEGRO OCASO","l":"CELULAR"},"11000910":{"p":0.435,"m":0.0011,"d":"CELULAR APPLE IPHONE 13 PRO 6.1\" 512GB AZUL nanoSIM REACONDI","l":"CELULAR"},"11000384":{"p":0.49,"m":0.00109,"d":"CELULAR XIAOMI POCO X6 PRO 5G 6.67\" 12GB 512GB NEGRO","l":"CELULAR"},"11000594":{"p":0.485,"m":0.00108,"d":"CELULAR XIAOMI REDMI 14C 6.78\" 4GB 256GB NEGRO","l":"CELULAR"},"11000435":{"p":0.435,"m":0.00105,"d":"CELULAR HONOR 200 5G 6.7\" 12GB 256GB VERDE ESMERALDA","l":"CELULAR"},"11000434":{"p":0.435,"m":0.00105,"d":"CELULAR HONOR 200 LITE 5G 6.7\" 8GB 256GB AZUL","l":"CELULAR"},"11000589":{"p":0.22,"m":0.00052,"d":"CELULAR SAMSUNG GALAXY S25 ULTRA 5G 6.9\" 12GB 256GB NEGRO TI","l":"CELULAR"},"11000403":{"p":0.485,"m":0.00103,"d":"CELULAR XIAOMI 14 5G 6.36\" 12GB 512GB NEGRO","l":"CELULAR"},"11000893":{"p":0.41,"m":0.00051,"d":"CELULAR APPLE IPHONE 17 PRO MAX 6.9\" 12GB 256GB PLATA eSIM","l":"CELULAR"},"11000294":{"p":1.1,"m":0.00101,"d":"TABLET ADVANCE TBADVSP5732BK 10.1\" ANDROID 11GO RAM 2GB 32GB","l":"TABLET"},"11000043":{"p":0.435,"m":0.001,"d":"CELULAR VIVO Y20 4GB 64GB AZUL","l":"CELULAR"},"11000060":{"p":0.39,"m":0.001,"d":"CELULAR VIVO Y20 4GB 64GB NEGRO","l":"CELULAR"},"11000674":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 13 6.1\" 128GB ROJO nanoSIM - REACONDICI","l":"CELULAR"},"11000909":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 13 PRO 6.1\" 512GB PLATA nanoSIM REACOND","l":"CELULAR"},"11001107":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 14 PRO 6.1\" 1TB NEGRO eSIM REACONDICION","l":"CELULAR"},"11001142":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 14 PRO MAX 6.7\" 512GB MORADO eSIM REACO","l":"CELULAR"},"11001147":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 15 PRO MAX 6.7\" 1TB NEGRO TITANIO eSIM ","l":"CELULAR"},"11001148":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 15 PRO MAX 6.7\" 1TB BLANCO TITANIO eSIM","l":"CELULAR"},"11001153":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 15 6.1\" 128GB AZUL eSIM REACONDICIONADO","l":"CELULAR"},"11001154":{"p":0.435,"m":0.00097,"d":"CELULAR APPLE IPHONE 15 PRO MAX 6.7\" 1TB NATURAL TITANIO eSI","l":"CELULAR"},"11000747":{"p":0.435,"m":0.00097,"d":"CELULAR HONOR MAGIC7 LITE 5G 6.78\" 8GB 512GB MORADO TITANIO","l":"CELULAR"},"11001008":{"p":0.485,"m":0.00097,"d":"CELULAR XIAOMI REDMI NOTE 15 PRO PLUS 5G 6.83\" 12GB 512GB NE","l":"CELULAR"},"11000132":{"p":0.485,"m":0.00096,"d":"CELULAR XIAOMI REDMI NOTE 12 PRO 5G 8GB 256GB BLANCO","l":"CELULAR"},"11000075":{"p":0.325,"m":0.00048,"d":"CELULAR APPLE IPHONE 11 6.1\" 128GB NEGRO","l":"CELULAR"},"11000683":{"p":0.435,"m":0.00095,"d":"CELULAR HONOR X6c 6.61\" 6GB 256GB BLANCO","l":"CELULAR"},"11000550":{"p":0.35,"m":0.00032,"d":"ORGANIZADOR DE ACCESORIOS Y PORTACABLES TEROS TE-ACS9014 GRI","l":"ORGANIZADOR"},"11000323":{"p":0.23,"m":0.00094,"d":"SMARTWATCH W&O X8 ULTRA COLOR NEGRO ENTERO","l":"SMARTWATCH"},"11000387":{"p":0.23,"m":0.00094,"d":"SMARTWATCH TEROS TE8088 VERDE CLARO c/AUDIFONOS NEGROS INALA","l":"SMARTWATCH"},"11000156":{"p":0.435,"m":0.00092,"d":"CELULAR HONOR MAGIC5 LITE 5G 6.7\" 8GB 256GB VERDE","l":"CELULAR"},"11000725":{"p":0.33,"m":0.00092,"d":"CELULAR ZTE BLADE V60 SMART 6.6\" 4GB 256GB NEGRO","l":"CELULAR"},"11000358":{"p":0.31,"m":0.00045,"d":"CELULAR SAMSUNG GALAXY A35 5G 6.6\" 8GB 256GB NEGRO S/CARGADO","l":"CELULAR"},"11001102":{"p":0.31,"m":0.00045,"d":"CELULAR SAMSUNG GALAXY A56 5G 6.6\" 8GB 256GB BLANCO S/CARGAD","l":"CELULAR"},"11001164":{"p":0.31,"m":0.00045,"d":"CELULAR SAMSUNG GALAXY A37 5G 6.7\" 8GB 256GB GRIS OSCURO","l":"CELULAR"},"11001165":{"p":0.31,"m":0.00045,"d":"CELULAR SAMSUNG GALAXY A37 5G 6.7\" 8GB 256GB VIOLETA","l":"CELULAR"},"11000648":{"p":0.33,"m":0.00084,"d":"CELULAR INFINIX HOT 50 X6882 6.78\" 6GB 256GB NEGRO","l":"CELULAR"},"11000044":{"p":0.39,"m":0.00083,"d":"CELULAR MOTOROLA MOTO G20 4GB 128GB GREEN","l":"CELULAR"},"11000062":{"p":0.39,"m":0.00083,"d":"CELULAR MOTOROLA MOTO E20 2GB 32GB AZUL","l":"CELULAR"},"11000554":{"p":0.39,"m":0.00083,"d":"CELULAR MOTOROLA MOTO G15 6.72\" 4GB 256GB VERDE","l":"CELULAR"},"11000253":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 15 6.1\" 128GB NEGRO SIM CHIP","l":"CELULAR"},"11000501":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 16 6.1\" 8GB 128GB BLANCO nanoSIM","l":"CELULAR"},"11000631":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 16e 6.1\" 8GB 128GB NEGRO nanoSIM","l":"CELULAR"},"11000687":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 17 6.3\" 8GB 256GB NEGRO eSIM","l":"CELULAR"},"11000888":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 17 6.3\" 8GB 256GB NEGRO nanoSIM","l":"CELULAR"},"11000891":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 17 6.3\" 8GB 256GB LAVANDA nanoSIM","l":"CELULAR"},"11000892":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 17 6.3\" 8GB 256GB AZUL NEBLINA nanoSIM","l":"CELULAR"},"11001093":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 16 6.1\" 8GB 256GB NEGRO nanoSIM","l":"CELULAR"},"11001095":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 16 6.1\" 8GB 256GB ROSADO nanoSIM","l":"CELULAR"},"11000745":{"p":0.21,"m":0.0008,"d":"CELULAR ZTE BLADE V70 MAX 6.9\" 4GB 256GB GRIS","l":"CELULAR"},"11000225":{"p":0.39,"m":0.00079,"d":"CELULAR MOTOROLA MOTO E13 6.5\" 2GB 64GB BLANCO","l":"CELULAR"},"10000839":{"p":29.5,"m":3e-05,"d":"TELEVISOR HISENSE QLED 75Q6QV 75\" UHD/4K SMART VIDAA VOICE","l":"TELEVISOR"},"35000041":{"p":0.95,"m":0.00078,"d":"MALETÍN DEPORTIVO + PELOTA FIFA WC 26 TRIONDA CLUB JD8028","l":"MALETIN"},"11000859":{"p":0.415,"m":0.00076,"d":"CELULAR MOTOROLA MOTO G56 5G 6.7\" 8GB 256GB VERDE","l":"CELULAR"},"11001090":{"p":0.39,"m":0.00076,"d":"CELULAR MOTOROLA MOTO G56 5G 6.7\" 8GB 256GB AZUL","l":"CELULAR"},"11000109":{"p":0.31,"m":0.00076,"d":"CELULAR SAMSUNG A04e 6.5\" 3GB 64GB NEGRO","l":"CELULAR"},"11000186":{"p":0.39,"m":0.00075,"d":"CELULAR MOTOROLA MOTO G82 IB 5G 6.6\" 6GB 128GB NEGRO","l":"CELULAR"},"11000285":{"p":0.31,"m":0.00074,"d":"CELULAR SAMSUNG GALAXY A05 6.7\" 4GB 128GB NEGRO S/CARGADOR","l":"CELULAR"},"11011443":{"p":0.29,"m":0.00037,"d":"CARGADOR PORTÁTIL KUZLER 10000MAH ANKE-106N","l":"CARGADOR"},"15000007":{"p":0.9,"m":1e-05,"d":"VALVULA 1/2 DN15 DN40","l":"VALVULA"},"11000337":{"p":0.39,"m":0.00069,"d":"CELULAR MOTOROLA MOTO G54 5G 6.5\" 8GB 256GB AZUL INDIGO","l":"CELULAR"},"15000093":{"p":0.85,"m":0.0003,"d":"SET DE CUCHILLOS + PELADOR DE PAPA MIRAY SCM-1 6 PZAS","l":"SET"},"11000523":{"p":0.375,"m":0.00052,"d":"CELULAR SAMSUNG GALAXY S24 FE 5G 6.7\" 8GB 256GB NEGRO","l":"CELULAR"},"11000613":{"p":0.375,"m":0.00052,"d":"CELULAR SAMSUNG GALAXY S25 ULTRA 5G 6.9\" 12GB 512GB NEGRO TI","l":"CELULAR"},"11000264":{"p":0.41,"m":0.00051,"d":"CELULAR APPLE IPHONE 15 PRO MAX 6.7\" 256GB NATURAL TITANIO S","l":"CELULAR"},"10000897":{"p":51.0,"m":6e-05,"d":"TELEVISOR HISENSE QLED 85Q6QV 85\" UHD/4K SMART VIDAA VOICE","l":"TELEVISOR"},"11000715":{"p":0.255,"m":0.00045,"d":"CELULAR SAMSUNG GALAXY A16 6.7\" 4GB 128GB NEGRO S/CARGADOR","l":"CELULAR"},"11000152":{"p":0.31,"m":0.00045,"d":"CELULAR SAMSUNG GALAXY A34 5G 6.6\" 8GB 256GB NEGRO S/CARGADO","l":"CELULAR"},"11000157":{"p":0.31,"m":0.00045,"d":"CELULAR SAMSUNG GALAXY A54 5G 6.4\" 8GB 256GB NEGRO S/CARGADO","l":"CELULAR"},"11000588":{"p":0.31,"m":0.00045,"d":"CELULAR SAMSUNG GALAXY A56 5G 6.6\" 8GB 256GB VERDE OLIVA S/C","l":"CELULAR"},"11001160":{"p":0.31,"m":0.00045,"d":"CELULAR SAMSUNG GALAXY A57 5G 6.7\" 8GB 256GB AZUL MARINO","l":"CELULAR"},"11000732":{"p":0.255,"m":0.0001,"d":"CELULAR SAMSUNG GALAXY A07 6.7\" 4GB 128GB VIOLETA S/CARGADOR","l":"CELULAR"},"11000195":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 13 6.1\" 128GB ROSADO","l":"CELULAR"},"11000196":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 14 6.1\" 128GB PURPURA SIM CHIP","l":"CELULAR"},"11000410":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 15 PRO 6.1\" 128GB NEGRO TITANIO eSIM","l":"CELULAR"},"11000504":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 16 6.1\" 8GB 128GB ULTRAMARINO nanoSIM","l":"CELULAR"},"11000632":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 16e 6.1\" 8GB 128GB BLANCO nanoSIM","l":"CELULAR"},"11000690":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 17 6.3\" 8GB 256GB SALVIA eSIM","l":"CELULAR"},"11000889":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 17 6.3\" 8GB 256GB BLANCO nanoSIM","l":"CELULAR"},"11000971":{"p":0.435,"m":0.00041,"d":"CELULAR APPLE IPHONE 15 PRO MAX 6.7\" 512GB NEGRO TITANIO eSI","l":"CELULAR"},"11001094":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 16 6.1\" 8GB 256GB BLANCO nanoSIM","l":"CELULAR"},"11000547":{"p":0.375,"m":0.00041,"d":"CELULAR SAMSUNG GALAXY S24 5G 6.2\" 8GB 256GB NEGRO","l":"CELULAR"},"10000724":{"p":0.043,"m":0.00035,"d":"AUDIFONOS PANASONIC TRUE WIRELESS RZ-B110WDE-W BLANCO","l":"AUDIFONOS"},"11001037":{"p":0.31,"m":0.0001,"d":"CELULAR SAMSUNG GALAXY A17 6.7\" 8GB 256GB NEGRO C/CARGADOR 1","l":"CELULAR"},"10000697":{"p":0.23,"m":0.00027,"d":"SMARTWATCH RELOJ SMART MIRAY RSM-010N/M42 NEGRO","l":"SMARTWATCH"},"11000849":{"p":0.6,"m":0.00024,"d":"TABLET LENOVO M9 4G LTE 9.0\" 4GB 128GB FOLIO","l":"TABLET"},"11000639":{"p":0.125,"m":0.00023,"d":"AIRPODS (4TA GEN) USB-C APPLE","l":"AIRPODS"},"11000438":{"p":0.31,"m":0.0001,"d":"CELULAR SAMSUNG GALAXY A06 6.7\" 4GB 128GB NEGRO C/CARGADOR 1","l":"CELULAR"},"11000612":{"p":0.375,"m":0.0001,"d":"CELULAR SAMSUNG GALAXY S25 ULTRA 5G 6.9\" 12GB 256GB GRIS TIT","l":"CELULAR"},"11000353":{"p":0.435,"m":0.0001,"d":"CELULAR OPPO A38 6.52\" 4GB 128GB NEGRO","l":"CELULAR"},"11000515":{"p":0.435,"m":9e-05,"d":"CELULAR OPPO RENO11F 5G 6.7\" 8GB 256GB VERDE","l":"CELULAR"},"11000525":{"p":0.055,"m":0.00018,"d":"JUEGO NINTENDO SWITCH MARIO KART 8 DELUXE","l":"JUEGO"},"11000570":{"p":0.5,"m":8e-05,"d":"ANTIVIRUS BITDEFENDER PLUS 1PC 12MESES","l":"ANTIVIRUS"},"15000014":{"p":0.3,"m":0.0,"d":"TUBO DE ABASTO 1/2\" X 40 CM","l":"TUBO"},"15000010":{"p":0.9,"m":0.0,"d":"TARUGO NARANJA 3/8\"","l":"TARUGO"},"15000011":{"p":0.9,"m":0.0,"d":"TIRAFON DE 1/4\" X 2","l":"TIRAFON"},"11001174":{"p":0.69,"m":9e-05,"d":"CELULAR HONOR 600 5G 6.7\" 8GB 256GB NEGRO","l":"CELULAR"},"15000113":{"p":15.0,"m":2e-05,"d":"TOLDO RETRÁCTIL 3x3 CON LOGO DE CUSQUEÑA","l":"TOLDO"},"12000247":{"p":2.0,"m":1e-05,"d":"CARPA KLIMBER PARA 4 PERSONAS MODELO DOME COLOR VERDE","l":"CARPA"},"15000005":{"p":0.3,"m":0.0,"d":"TUBO DE ABASTO 1/2\" x 100 CM","l":"TUBO"},"15000085":{"p":0.1,"m":0.0,"d":"DESTAPADOR DE BARRA CRISTAL","l":"DESTAPADOR"},"11000067":{"p":0.19,"m":0.00041,"d":"CELULAR SAMSUNG GALAXY A53 5G 6GB 128GB NEGRO","l":"CELULAR"},"11000239":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 15 6.1\" 128GB VERDE SIM CHIP","l":"CELULAR"},"11000255":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 15 6.1\" 128GB ROSADO SIM CHIP","l":"CELULAR"},"11000395":{"p":0.19,"m":0.0011,"d":"CELULAR XIAOMI REDMI NOTE 13 PRO 5G 6.67\" 8GB 256GB NEGRO","l":"CELULAR"},"11000439":{"p":0.2,"m":0.0011,"d":"CELULAR XIAOMI REDMI 14C 6.78\" 8GB 256GB NEGRO","l":"CELULAR"},"11000502":{"p":0.17,"m":0.00041,"d":"CELULAR APPLE IPHONE 16 6.1\" 8GB 128GB ROSADO nanoSIM","l":"CELULAR"},"11000544":{"p":0.485,"m":0.00108,"d":"CELULAR XIAOMI REDMI NOTE 14 PRO 6.67\" 8GB 256GB NEGRO MEDIA","l":"CELULAR"},"11000692":{"p":0.325,"m":0.00041,"d":"CELULAR APPLE IPHONE 17 6.3\" 8GB 256GB AZUL NEBLINA eSIM","l":"CELULAR"},"11000763":{"p":0.19,"m":0.00076,"d":"CELULAR ZTE BLADE A35 6.75\" 2GB 64GB NEGRO","l":"CELULAR"},"10000265":{"p":31.6,"m":0.34522,"d":"COCINA INDURAMA CORUÑA QZ CROMA 4H","l":"COCINA"},"10000274":{"p":25.0,"m":0.26836,"d":"COCINA INDURAMA GOYA 4H NEGRO","l":"COCINA"},"10000512":{"p":32.0,"m":0.3241,"d":"COCINA INDURAMA VERNET GRIS 4H","l":"COCINA"},"10000578":{"p":4.6,"m":0.04566,"d":"FREIDORA DE AIRE OSTER 6L CKSTAF60WDDF NEGRO","l":"FREIDORA"},"10000885":{"p":0.8,"m":0.00745,"d":"HERVIDOR ELECTRICO DE 2.3 LITROS DOU DOU -922 CH -922 N-B15","l":"HERVIDOR"},"11000154":{"p":1.7,"m":0.01002,"d":"LAPTOP HP 15.6\" 15-DY5000LA FULL HD CORE I5-1235U WIN11 8GB ","l":"LAPTOP"},"10000492":{"p":36.0,"m":0.33756,"d":"LAVADORA MABE 10KG LMAP1015WGBB0 SILVER","l":"LAVADORA"},"10000662":{"p":39.0,"m":0.42371,"d":"LAVADORA LG WT13WPBK 13KG BLANCO","l":"LAVADORA"},"10000775":{"p":42.2,"m":0.49842,"d":"LAVADORA HISENSE 18 KG WT3W1823UT DARK GREY","l":"LAVADORA"},"10000540":{"p":3.2,"m":0.02765,"d":"OLLA ARROCERA DAEWOO PLATEADO DI-9536 2.8L","l":"OLLA"},"10000685":{"p":3.2,"m":0.02693,"d":"OLLA ARROCERA BLACKLINE 2.8L RC-15R COBRE","l":"OLLA"},"15000003":{"p":7.5,"m":0.04808,"d":"PARRILLA MR BEEF REDONDA + 2 BAND LATERALES","l":"PARRILLA"},"15000101":{"p":1.2,"m":0.0016,"d":"SET TABLA + 4 CUCHILLOS","l":"SET"},"11011467":{"p":0.085,"m":0.00038,"d":"SMARTWATCH T900 PRO MAX EVO SERIE10","l":"SMARTWATCH"},"10000072":{"p":19.0,"m":0.16952,"d":"TELEVISOR SAMSUNG UN55AU7090GXZS","l":"TELEVISOR"},"10000399":{"p":36.35,"m":0.3402,"d":"TELEVISOR HYUNDAI 70\" UHD SMART WebOS HYLED7002W4KM c/MAGIC ","l":"TELEVISOR"},"10000836":{"p":13.5,"m":0.00135,"d":"TELEVISOR HISENSE QLED 50Q6QV 50\" UHD/4K SMART VIDAA VOICE","l":"TELEVISOR"},"10000409":{"p":4.9,"m":0.03174,"d":"TERMA AQUAMAXX DE PASO A GN TIPO A 5.5 LTS/MIN","l":"TERMA"},"10000598":{"p":62.0,"m":0.68626,"d":"VITRINA EXHIBIDORA OSTER OS-PVSC338 338L NEGRO","l":"VITRINA"}};
+const ZONAS={"SAN JUAN DE LURIGANCHO": "ESTE", "ATE": "ESTE", "EL AGUSTINO": "ESTE", "LURIGANCHO": "ESTE", "SANTA ANITA": "ESTE", "CHACLACAYO": "ESTE", "CIENEGUILLA": "ESTE", "CHOSICA": "ESTE", "SAN MARTIN DE PORRES": "NORTE", "LOS OLIVOS": "NORTE", "COMAS": "NORTE", "CARABAYLLO": "NORTE", "PUENTE PIEDRA": "NORTE", "INDEPENDENCIA": "NORTE", "ANCON": "NORTE", "SANTA ROSA": "NORTE", "VILLA MARIA DEL TRIUNFO": "SUR", "VILLA EL SALVADOR": "SUR", "SAN JUAN DE MIRAFLORES": "SUR", "CHORRILLOS": "SUR", "LURIN": "SUR", "PACHACAMAC": "SUR", "PUCUSANA": "SUR", "SAN BARTOLO": "SUR", "PUNTA NEGRA": "SUR", "PUNTA HERMOSA": "SUR", "CHILCA": "SUR", "SAN VICENTE DE CAÑETE": "SUR", "IMPERIAL": "SUR", "CALLAO": "CALLAO", "VENTANILLA": "CALLAO", "MI PERU": "CALLAO", "CARMEN DE LA LEGUA REYNOSO": "CALLAO", "BELLAVISTA": "CALLAO", "LA PUNTA": "CALLAO", "LA PERLA": "CALLAO", "LIMA": "CENTRO-SUR", "RIMAC": "CENTRO-SUR", "LA VICTORIA": "CENTRO-SUR", "BREÑA": "CENTRO-SUR", "JESUS MARIA": "CENTRO-SUR", "LINCE": "CENTRO-SUR", "SAN ISIDRO": "CENTRO-SUR", "MIRAFLORES": "CENTRO-SUR", "SAN BORJA": "CENTRO-SUR", "SANTIAGO DE SURCO": "CENTRO-SUR", "SURCO": "CENTRO-SUR", "SURQUILLO": "CENTRO-SUR", "BARRANCO": "CENTRO-SUR", "LA MOLINA": "CENTRO-SUR", "SAN MIGUEL": "CENTRO-SUR", "MAGDALENA DEL MAR": "CENTRO-SUR", "PUEBLO LIBRE": "CENTRO-SUR", "SAN LUIS": "CENTRO-SUR"};
+const LIMA=['LIMA','CALLAO'];
+
+// ══════════════════════════════════════════════
+// ESTADO GLOBAL
+// ══════════════════════════════════════════════
+let ST={pedidos:[],rechazos:[],kpi:{},cargados:{espe:0,rptr:0,base:0,conf:0,trans:0,myb:0}};
+let editIdx=null;
+let nextCid=4, nextMid=5;
+
+// Flota inicial (el estilo del archivo de proyecto: camiones y motos separados)
+let flota={
+  camiones:[
+    {id:'C1',placa:'AEK-392',tonelaje:'3 Tn',tipo:'Propia',chofer:'',estado:'activa',nota:'GPS activo',cap_kg:3000,cap_m3:18,zona:'NORTE / ESTE'},
+    {id:'C2',placa:'AHJ-815',tonelaje:'3 Tn',tipo:'Propia',chofer:'',estado:'activa',nota:'',cap_kg:3000,cap_m3:18,zona:'SUR / CALLAO'},
+    {id:'C3',placa:'',tonelaje:'2.5 Tn',tipo:'Tercerizada',chofer:'',estado:'inactiva',nota:'Tercerizado',cap_kg:2500,cap_m3:15,zona:'APOYO'},
+  ],
+  motos:[
+    {id:'M1',placa:'MZ-1',tipo:'Propia',chofer:'',estado:'activa',nota:'',cap_kg:150,cap_m3:0.5,zona:'CERCANA'},
+    {id:'M2',placa:'MZ-2',tipo:'Propia',chofer:'',estado:'activa',nota:'',cap_kg:150,cap_m3:0.5,zona:'CERCANA'},
+    {id:'M3',placa:'MZ-3',tipo:'Tercerizada',chofer:'',estado:'activa',nota:'',cap_kg:150,cap_m3:0.5,zona:'CERCANA'},
+  ]
+};
+
+// ══════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded',()=>{
+  // Fecha en header
+  const now=new Date();
+  const dias=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  const meses=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  document.getElementById('hdr-date').innerHTML=
+    dias[now.getDay()]+' '+now.getDate()+' '+meses[now.getMonth()]+' '+now.getFullYear()
+    +'<br>'+now.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
+
+  // Poblar select distritos en manual
+  const ds=document.getElementById('mdi');
+  if(ds) Object.keys(ZONAS).sort().forEach(d=>{
+    const o=document.createElement('option');o.value=d;o.textContent=d;ds.appendChild(o);
+  });
+
+  // Cargar estado guardado
+  try{const s=localStorage.getItem('mrp_st2');if(s)ST=Object.assign(ST,JSON.parse(s));}catch(e){}
+  try{const f=localStorage.getItem('mrp_fl2');if(f)flota=JSON.parse(f);}catch(e){}
+
+  renderFlota();renderMotor();renderKpi();renderRechazos();renderProvincias();renderIntStatus();
+});
+
+function save(){
+  try{localStorage.setItem('mrp_st2',JSON.stringify(ST));localStorage.setItem('mrp_fl2',JSON.stringify(flota));}catch(e){}
+}
+
+function showTab(id,btn){
+  document.querySelectorAll('.sec').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('sec-'+id).classList.add('active');
+  if(btn)btn.classList.add('active');
+  if(id==='rutas')renderRutas();
+  if(id==='provincias')renderProvincias();
+  if(id==='rechazos')renderRechazos();
+}
+
+// ══════════════════════════════════════════════
+// FLOTA — CAMIONES Y MOTOS SEPARADOS (estilo proyecto)
+// ══════════════════════════════════════════════
+function allUnits(){return [...flota.camiones,...flota.motos];}
+
+function renderFlota(){
+  // Pills resumen
+  const all=allUnits();
+  const activas=all.filter(u=>u.estado==='activa').length;
+  const inact=all.filter(u=>u.estado==='inactiva').length;
+  document.getElementById('fleet-pills').innerHTML=`
+    <div class="pill p-activas"><span class="pill-icon">✅</span><div><div class="pill-num">${activas}</div><div class="pill-label">Unidades activas</div></div></div>
+    <div class="pill p-inact"><span class="pill-icon">🔴</span><div><div class="pill-num">${inact}</div><div class="pill-label">Inactivas</div></div></div>
+    <div class="pill p-cam"><span class="pill-icon">🚛</span><div><div class="pill-num">${flota.camiones.length}</div><div class="pill-label">Camiones en flota</div></div></div>
+    <div class="pill p-mot"><span class="pill-icon">🏍️</span><div><div class="pill-num">${flota.motos.length}</div><div class="pill-label">Motorizados en flota</div></div></div>`;
+
+  // Grid camiones
+  document.getElementById('grid-cam').innerHTML=flota.camiones.length
+    ? flota.camiones.map((u,i)=>cardCam(u,i)).join('')
+    : '<div style="color:#bbb;padding:20px;font-size:13px">No hay camiones. Agrega uno.</div>';
+
+  // Grid motos
+  document.getElementById('grid-mot').innerHTML=flota.motos.length
+    ? flota.motos.map((u,i)=>cardMot(u,i)).join('')
+    : '<div style="color:#bbb;padding:20px;font-size:13px">No hay motorizados. Agrega uno.</div>';
+
+  renderFleetRes();
+  renderMotorRes();
+}
+
+function cardCam(u,i){
+  const asig=ST.pedidos.filter(p=>p.unidad===u.id);
+  const kg=asig.reduce((s,p)=>s+(+p.peso||0),0);
+  const pct=u.cap_kg>0?Math.min(kg/u.cap_kg,1):0;
+  const bcls=pct>.95?'cap-full':pct>.8?'cap-warn':'cap-ok';
+  const inact=u.estado==='inactiva';
+  return `<div class="ucard${inact?' inactiva':''}" id="ucard-${u.id}">
+    <div class="ucard-head">
+      <span style="font-size:26px">🚛</span>
+      <div><div class="ucard-id">${u.id}</div><div class="ucard-tipo">${u.tipo}</div></div>
+      <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+        <span class="badge-disp ${inact?'bd-inactiva':'bd-activa'}">${inact?'INACTIVA':'ACTIVA'}</span>
+        <button class="btn-toggle ${inact?'act':'desact'}" onclick="toggleCam(${i})">${inact?'▶ Activar':'⏸ Desactivar'}</button>
+        <button class="btn-elim" onclick="elimCam(${i})" title="Eliminar">✕</button>
+      </div>
+    </div>
+    <div class="ucard-body">
+      <div class="frow">
+        <div class="field"><label>Placa</label>
+          <input value="${u.placa}" placeholder="Ej: AEK-392" oninput="ufCam(${i},'placa',this.value)"></div>
+        <div class="field"><label>Tonelaje</label>
+          <select onchange="ufCam(${i},'tonelaje',this.value)">
+            ${['2 Tn','2.5 Tn','3 Tn','5 Tn','10 Tn','Otro'].map(t=>`<option ${u.tonelaje===t?'selected':''}>${t}</option>`).join('')}
+          </select></div>
+      </div>
+      <div class="frow">
+        <div class="field"><label>Tipo</label>
+          <select onchange="ufCam(${i},'tipo',this.value)">
+            ${['Propia','Tercerizada','Alquilada'].map(t=>`<option ${u.tipo===t?'selected':''}>${t}</option>`).join('')}
+          </select></div>
+        <div class="field"><label>Zona preferente</label>
+          <input value="${u.zona||''}" placeholder="Ej: NORTE / ESTE" oninput="ufCam(${i},'zona',this.value)"></div>
+      </div>
+      <div class="field"><label>👤 Chofer asignado (puede rotar)</label>
+        <input value="${u.chofer}" placeholder="Nombre del chofer — editable por turno"
+          oninput="ufCam(${i},'chofer',this.value)" style="border-left:3px solid var(--merpes-blue)"></div>
+      <div class="field"><label>📝 Nota / Observación</label>
+        <textarea oninput="ufCam(${i},'nota',this.value)" placeholder="GPS activo, revisar llanta delantera...">${u.nota}</textarea></div>
+      <div class="caps-row">
+        <div class="cap-chip">
+          <div class="cap-val" style="color:var(--merpes-blue)">${asig.length}</div><div class="cap-lbl">Pedidos</div></div>
+        <div class="cap-chip">
+          <div class="cap-val">${kg.toFixed(0)}/${u.cap_kg}</div><div class="cap-lbl">kg</div>
+          <div class="cap-bar-wrap"><div class="cap-bar ${bcls}" style="width:${pct*100}%"></div></div></div>
+        <div class="cap-chip">
+          <div class="cap-val" style="font-size:12px">${pct>.95?'⚠️ SOBRE':pct>.8?'🟡 ALTA':'🟢 OK'}</div>
+          <div class="cap-lbl">${(pct*100).toFixed(0)}% cap.</div></div>
+      </div>
+      <div style="font-size:10px;color:#ccc;margin-top:4px">ID: ${u.id}</div>
+    </div>
+  </div>`;
+}
+
+function cardMot(u,i){
+  const asig=ST.pedidos.filter(p=>p.unidad===u.id);
+  const kg=asig.reduce((s,p)=>s+(+p.peso||0),0);
+  const pct=u.cap_kg>0?Math.min(kg/u.cap_kg,1):0;
+  const bcls=pct>.95?'cap-full':pct>.8?'cap-warn':'cap-ok';
+  const inact=u.estado==='inactiva';
+  return `<div class="ucard moto${inact?' inactiva':''}" id="ucard-${u.id}">
+    <div class="ucard-head">
+      <span style="font-size:26px">🏍️</span>
+      <div><div class="ucard-id">${u.id}</div><div class="ucard-tipo">${u.tipo}</div></div>
+      <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+        <span class="badge-disp ${inact?'bd-inactiva':'bd-activa'}">${inact?'INACTIVA':'ACTIVA'}</span>
+        <button class="btn-toggle ${inact?'act':'desact'}" onclick="toggleMot(${i})">${inact?'▶ Activar':'⏸ Desactivar'}</button>
+        <button class="btn-elim" onclick="elimMot(${i})" title="Eliminar">✕</button>
+      </div>
+    </div>
+    <div class="ucard-body">
+      <div class="frow">
+        <div class="field"><label>Identificación / Placa</label>
+          <input value="${u.placa}" placeholder="Ej: MZ-1 o placa" oninput="ufMot(${i},'placa',this.value)"></div>
+        <div class="field"><label>Tipo</label>
+          <select onchange="ufMot(${i},'tipo',this.value)">
+            ${['Propia','Tercerizada','Alquilada'].map(t=>`<option ${u.tipo===t?'selected':''}>${t}</option>`).join('')}
+          </select></div>
+      </div>
+      <div class="field"><label>Zona preferente</label>
+        <input value="${u.zona||''}" placeholder="Ej: CERCANA / ATE / SAN ISIDRO" oninput="ufMot(${i},'zona',this.value)"></div>
+      <div class="field"><label>👤 Motorizado asignado (puede rotar)</label>
+        <input value="${u.chofer}" placeholder="Nombre — puede tomar camión si tiene brevete"
+          oninput="ufMot(${i},'chofer',this.value)" style="border-left:3px solid var(--merpes-orange)"></div>
+      <div class="field"><label>📝 Nota / Observación</label>
+        <textarea oninput="ufMot(${i},'nota',this.value)" placeholder="Zona asignada, chip disponible...">${u.nota}</textarea></div>
+      <div class="caps-row">
+        <div class="cap-chip">
+          <div class="cap-val" style="color:var(--merpes-orange)">${asig.length}</div><div class="cap-lbl">Pedidos</div></div>
+        <div class="cap-chip">
+          <div class="cap-val">${kg.toFixed(0)}/${u.cap_kg}</div><div class="cap-lbl">kg</div>
+          <div class="cap-bar-wrap"><div class="cap-bar ${bcls}" style="width:${pct*100}%"></div></div></div>
+        <div class="cap-chip">
+          <div class="cap-val" style="font-size:12px">${pct>.95?'⚠️ SOBRE':pct>.8?'🟡 ALTA':'🟢 OK'}</div>
+          <div class="cap-lbl">${(pct*100).toFixed(0)}% cap.</div></div>
+      </div>
+      <div style="font-size:10px;color:#ccc;margin-top:4px">ID: ${u.id}</div>
+    </div>
+  </div>`;
+}
+
+// Acciones flota
+function ufCam(i,f,v){flota.camiones[i][f]=v;save();renderFleetRes();renderMotorRes();}
+function ufMot(i,f,v){flota.motos[i][f]=v;save();renderFleetRes();renderMotorRes();}
+function toggleCam(i){flota.camiones[i].estado=flota.camiones[i].estado==='activa'?'inactiva':'activa';save();renderFlota();}
+function toggleMot(i){flota.motos[i].estado=flota.motos[i].estado==='activa'?'inactiva':'activa';save();renderFlota();}
+function elimCam(i){if(!confirm('¿Eliminar camión?'))return;flota.camiones.splice(i,1);save();renderFlota();renderMotor();}
+function elimMot(i){if(!confirm('¿Eliminar moto?'))return;flota.motos.splice(i,1);save();renderFlota();renderMotor();}
+
+function addUnit(tipo){
+  if(tipo==='cam'){
+    flota.camiones.push({id:'C'+nextCid++,placa:'',tonelaje:'3 Tn',tipo:'Propia',chofer:'',estado:'activa',nota:'',cap_kg:3000,cap_m3:18,zona:''});
+  } else {
+    flota.motos.push({id:'M'+nextMid++,placa:'',tipo:'Propia',chofer:'',estado:'activa',nota:'',cap_kg:150,cap_m3:0.5,zona:'CERCANA'});
+  }
+  save();renderFlota();
+  setTimeout(()=>{
+    const grid=tipo==='cam'?'grid-cam':'grid-mot';
+    const el=document.getElementById(grid).lastElementChild;
+    if(el)el.scrollIntoView({behavior:'smooth',block:'center'});
+  },60);
+}
+
+function resetFlota(){if(!confirm('¿Restaurar defaults de flota?'))return;localStorage.removeItem('mrp_fl2');location.reload();}
+
+function renderFleetRes(){
+  const d=allUnits().filter(u=>u.estado==='activa');
+  const tkg=d.reduce((s,u)=>s+(u.cap_kg||0),0);
+  const cam=d.filter(u=>u.id.startsWith('C')).length;
+  const mot=d.filter(u=>u.id.startsWith('M')).length;
+  document.getElementById('fleet-res').innerHTML=`
+    <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:800;color:var(--merpes-blue)">${d.length}</div><div style="font-size:12px;color:var(--ink-soft)">Activas</div></div>
+    <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:800;color:var(--merpes-blue)">${cam}</div><div style="font-size:12px;color:var(--ink-soft)">Camiones</div></div>
+    <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:800;color:var(--merpes-orange)">${mot}</div><div style="font-size:12px;color:var(--ink-soft)">Motos</div></div>
+    <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:800">${tkg.toLocaleString()}</div><div style="font-size:12px;color:var(--ink-soft)">kg cap. total</div></div>`;
+}
+
+// ══════════════════════════════════════════════
+// IMPORT — 6 REPORTES
+// ══════════════════════════════════════════════
+function dov(e,id){e.preventDefault();document.getElementById(id).classList.add('dov')}
+function dlv(id){document.getElementById(id).classList.remove('dov')}
+function drp(e,t){e.preventDefault();dlv('iz-'+t);const f=e.dataTransfer.files[0];if(f)lfo(f,t);}
+function lf(e,t){const f=e.target.files[0];if(f)lfo(f,t);}
+function lfo(f,t){const r=new FileReader();r.onload=ev=>csv(ev.target.result,t);r.readAsText(f,'UTF-8');}
+function pp(t){const v=document.getElementById('pa-'+t).value;if(!v.trim()){smsg(t,'error','Sin datos');return;}csv(v,t);document.getElementById('pa-'+t).value='';}
+
+function csv(txt,t){
+  const lines=txt.trim().split('\n').filter(l=>l.trim());
+  if(lines.length<2){smsg(t,'error','Archivo vacío');return;}
+  const sep=lines[0].includes('\t')?'\t':',';
+  const hdr=lines[0].split(sep).map(h=>h.trim().replace(/^"+|"+$/g,'').toLowerCase());
+  const rows=lines.slice(1).map(l=>{
+    const cols=l.split(sep).map(c=>c.trim().replace(/^"+|"+$/g,''));
+    const o={};hdr.forEach((h,i)=>{o[h]=cols[i]||'';});return o;
+  });
+  if(t==='espe')pE(rows);
+  else if(t==='rptr')pR(rows);
+  else if(t==='base')pBase(rows);
+  else if(t==='conf')pConf(rows);
+  else if(t==='trans')pTrans(rows);
+  else if(t==='myb')pMyb(rows);
+}
+
+// --- ESPE ---
+function pE(rows){
+  let n=0;
+  rows.forEach(r=>{
+    const num=r['número']||r['numero']||r['n° pedido']||r['nro pedido']||'';
+    const est=(r['estado']||'').toUpperCase();
+    if(!num||!['ENTRANSITO','PROGRAMADO','CONFIRMADO','EN TRANSITO','EN TRÁNSITO'].includes(est))return;
+    if(!ST.pedidos.some(p=>p.numero===num)){
+      ST.pedidos.push(mkP({numero:num,canal:r['p. emis']||r['canal']||'',
+        cliente:r['razon social']||r['cliente']||'',tel:r['telefono']||r['teléfono']||'',
+        distrito:(r['distrito']||'').toUpperCase(),depto:(r['departamento']||'LIMA').toUpperCase(),
+        dir:r['direccion']||r['dirección']||'',precio:parseFloat(r['monto']||0),
+        estado:est,fuente:'ESPE'}));n++;}
+  });
+  ST.cargados.espe=n;
+  document.getElementById('espe-c').textContent=n+' pedidos';
+  smsg('espe','ok','✅ '+n+' pedidos del ESPE integrados');
+  save();renderAll();renderIntStatus();
+}
+
+// --- RPTR ---
+function pR(rows){
+  let n=0;
+  rows.forEach(r=>{
+    const num=r['número']||r['numero']||'';
+    const sku=r['código']||r['codigo']||r['cód. sku']||r['cod. sku']||'';
+    const und=parseFloat(r['unidades']||1);
+    if(!num)return;
+    const pd=PESOS[sku]||null;
+    const prod=r['descripción']||r['descripcion']||'';
+    const ex=ST.pedidos.find(p=>p.numero===num);
+    if(ex){
+      if(!ex.producto&&prod)ex.producto=prod;
+      if(pd&&!ex.peso){ex.peso=pd.p*und;ex.m3=pd.m*und;}
+      if(!ex.placa)ex.placa=r['placa']||'';
+      n++;
+    } else {
+      const d=(r['distrito']||'').toUpperCase();const dp=(r['departamento']||'LIMA').toUpperCase();
+      ST.pedidos.push(mkP({numero:num,canal:r['p. emis']||'',cliente:r['cliente']||'',
+        tel:r['telefono']||'',distrito:d,depto:dp,
+        dir:r['dirección entrega']||r['direccion entrega']||r['dirección cliente']||'',
+        producto:prod,sku,und,peso:pd?pd.p*und:0,m3:pd?pd.m*und:0,
+        precio:parseFloat(r['precio de venta totales']||0),fuente:'RPTR'}));n++;
+    }
+  });
+  ST.cargados.rptr=n;
+  document.getElementById('rptr-c').textContent=n+' ítems';
+  smsg('rptr','ok','✅ '+n+' ítems RPTR procesados');
+  save();renderAll();renderIntStatus();
+}
+
+// --- BASE DIARIA ---
+function pBase(rows){
+  let n=0;
+  rows.forEach(r=>{
+    const num=r['pedido']||r['número']||r['numero']||'';
+    if(!num)return;
+    const ex=ST.pedidos.find(p=>p.numero===num);
+    if(ex){
+      if(r['estado'])ex.base_estado=(r['estado']||'').toUpperCase();
+      if(r['canal']&&!ex.canal)ex.canal=r['canal'];
+      n++;
+    } else {
+      const d=(r['distrito']||'').toUpperCase();
+      ST.pedidos.push(mkP({numero:num,canal:r['canal']||'',cliente:r['cliente']||'',
+        tel:r['telefono']||'',distrito:d,depto:(r['departamento']||'LIMA').toUpperCase(),
+        dir:r['dirección']||r['direccion']||'',precio:parseFloat(r['monto']||0),
+        estado:r['estado']||'',fuente:'BASE'}));n++;
+    }
+  });
+  ST.cargados.base=n;
+  document.getElementById('base-c').textContent=n+' registros';
+  smsg('base','ok','✅ '+n+' registros de Base Diaria integrados');
+  save();renderAll();renderIntStatus();
+}
+
+// --- CONFIRMACIONES ---
+function pConf(rows){
+  let co=0,re=0;
+  rows.forEach(r=>{
+    const num=r['pedido']||r['número']||r['numero']||'';
+    const est=(r['estado']||'').toUpperCase();
+    const det=r['detalle']||r['horario']||'';
+    const p=ST.pedidos.find(x=>x.numero===num);
+    if(p){
+      p.conf_estado=est;
+      const vn=nv(det);if(vn)p.ventana=vn;
+      p.motivo_rechazo=r['motivo rechazo']||r['motivo']||'';
+      if(est==='CONFIRMADO'||est==='PROGRAMADO')co++;
+      if(est==='RECHAZO'||est==='RECHAZADO')re++;
+    } else if(num){
+      const d=(r['distrito']||'').toUpperCase();
+      ST.pedidos.push(mkP({numero:num,canal:'',cliente:r['cliente']||'',
+        tel:r['telefono']||'',distrito:d,depto:'LIMA',
+        ventana:nv(det)||'TARDE (hasta 2PM)',conf_estado:est,fuente:'CONF'}));
+      if(est==='CONFIRMADO')co++;
+    }
+  });
+  ST.cargados.conf=co+re;
+  document.getElementById('conf-c').textContent=co+' conf, '+re+' rechazos';
+  smsg('conf','ok','✅ '+co+' confirmados · '+re+' rechazos');
+  save();renderAll();renderIntStatus();
+}
+
+// --- TRÁNSITO ---
+function pTrans(rows){
+  let n=0;
+  rows.forEach(r=>{
+    const num=r['pedido']||r['número']||r['numero']||'';
+    if(!num)return;
+    const p=ST.pedidos.find(x=>x.numero===num);
+    if(p){
+      if(r['unidad']&&p.unidad==='SIN ASIGNAR'){p.unidad=r['unidad'].toUpperCase();}
+      if(r['vuelta']){const v=(r['vuelta']||'').toUpperCase();p.vuelta=v.includes('2')?'2DA VUELTA':'1ERA VUELTA';}
+      if(r['estado transito'])p.trans_estado=r['estado transito'];
+      n++;
+    } else if(num){
+      const d=(r['distrito']||'').toUpperCase();
+      const p2=mkP({numero:num,canal:r['canal']||'',cliente:r['cliente']||'',
+        tel:'',distrito:d,depto:'LIMA',dir:r['dirección']||'',fuente:'TRANSITO'});
+      if(r['unidad'])p2.unidad=r['unidad'].toUpperCase();
+      if(r['vuelta']){const v=(r['vuelta']||'').toUpperCase();p2.vuelta=v.includes('2')?'2DA VUELTA':'1ERA VUELTA';}
+      ST.pedidos.push(p2);n++;
+    }
+  });
+  ST.cargados.trans=n;
+  document.getElementById('trans-c').textContent=n+' registros';
+  smsg('trans','ok','✅ '+n+' registros de Tránsito integrados');
+  save();renderAll();renderIntStatus();
+}
+
+// --- MYBEES ---
+function pMyb(rows){
+  let n=0;
+  rows.forEach(r=>{
+    const num=r['pedido']||r['número']||r['numero']||r['orden']||'';
+    if(!num)return;
+    const ex=ST.pedidos.find(p=>p.numero===num);
+    if(ex){
+      ex.canal=ex.canal||'Mybees';
+      if(r['estado mybees'])ex.myb_estado=r['estado mybees'];
+      n++;
+    } else {
+      const d=(r['distrito']||'').toUpperCase();
+      ST.pedidos.push(mkP({numero:num,canal:'Mybees',
+        cliente:r['cliente']||r['nombre']||'',tel:r['telefono']||r['teléfono']||'',
+        distrito:d,depto:(r['departamento']||'LIMA').toUpperCase(),
+        dir:r['dirección']||r['direccion']||r['dirección de entrega']||'',
+        precio:parseFloat(r['monto']||r['importe']||0),
+        estado:r['estado']||'ENTRANSITO',fuente:'MYBEES'}));n++;
+    }
+  });
+  ST.cargados.myb=n;
+  document.getElementById('myb-c').textContent=n+' registros';
+  smsg('myb','ok','✅ '+n+' registros Mybees integrados');
+  save();renderAll();renderIntStatus();
+}
+
+// --- Status integración ---
+const REPORTE_INFO=[
+  {k:'espe',lbl:'① ESPE',resp:'Facturación',ico:'📋',color:'#1A56E8'},
+  {k:'rptr',lbl:'② RPTR',resp:'Almacén',ico:'📦',color:'#7C3AED'},
+  {k:'base',lbl:'③ Base Diaria',resp:'Varios',ico:'📄',color:'#16A34A'},
+  {k:'conf',lbl:'④ Confirmaciones',resp:'H. Nizama',ico:'📞',color:'#C2410C'},
+  {k:'trans',lbl:'⑤ Tránsito',resp:'C. Revilla',ico:'🚚',color:'#0D9488'},
+  {k:'myb',lbl:'⑥ Mybees',resp:'O. Benavides',ico:'🐝',color:'#9333EA'},
+];
+function renderIntStatus(){
+  document.getElementById('int-status').innerHTML=REPORTE_INFO.map(r=>{
+    const n=ST.cargados[r.k]||0;
+    const ok=n>0;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px;border:1.5px solid ${ok?r.color:'#E2E8F0'};border-radius:8px;background:${ok?r.color+'10':'#F8FAFC'}">
+      <span style="font-size:20px">${r.ico}</span>
+      <div style="flex:1">
+        <div style="font-size:12px;font-weight:700;color:${r.color}">${r.lbl}</div>
+        <div style="font-size:10.5px;color:var(--ink-soft)">${r.resp}</div>
+      </div>
+      <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:${ok?r.color:'#E2E8F0'};color:${ok?'#fff':'#9CA3AF'}">${ok?n+' ✓':'Pendiente'}</span>
+    </div>`;
+  }).join('');
+}
+
+// Helpers
+function nv(d){
+  const v=(d||'').toUpperCase().trim();
+  if(/ANTES.*(12M|12PM)/.test(v))return 'MAÑANA (hasta 12M)';
+  if(/ANTES.*(1PM|1 PM)/.test(v))return 'MAÑANA (hasta 1PM)';
+  if(/ANTES.*(2PM|2 PM)/.test(v))return 'TARDE (hasta 2PM)';
+  if(/ANTES.*(3PM)/.test(v))return 'TARDE (hasta 3PM)';
+  if(/ANTES.*(4PM)/.test(v))return 'TARDE (hasta 4PM)';
+  if(/1PM.*(ADELANTE|AD)/.test(v))return 'TARDE (desde 1PM)';
+  if(/2PM.*(ADELANTE|AD)/.test(v))return 'TARDE (desde 2PM)';
+  if(/3PM.*(ADELANTE|AD)/.test(v))return 'TARDE (desde 3PM)';
+  if(/COORDENADA/.test(v))return 'POR COORDENADAS';
+  if(/30 MIN/.test(v))return 'LLAMAR 30min antes';
+  return '';
+}
+function gz(dist,dept){
+  if(dept&&!LIMA.includes(dept.toUpperCase()))return 'PROVINCIA';
+  return ZONAS[dist]||'CENTRO-SUR';
+}
+function mkP(d){
+  const zona=gz(d.distrito||'',d.depto||'LIMA');
+  return {id:Date.now()+'_'+Math.random().toString(36).slice(2,7),
+    numero:d.numero||'',canal:d.canal||'',cliente:d.cliente||'',
+    tel:d.tel||'',distrito:d.distrito||'',depto:d.depto||'LIMA',
+    dir:d.dir||'',producto:d.producto||'',sku:d.sku||'',und:d.und||1,
+    peso:d.peso||0,m3:d.m3||0,precio:d.precio||0,
+    ventana:d.ventana||'TARDE (hasta 2PM)',zona,
+    unidad:'SIN ASIGNAR',vuelta:'1ERA VUELTA',
+    estado:d.estado||'ENTRANSITO',conf_estado:d.conf_estado||'',
+    motivo_rechazo:d.motivo_rechazo||'',fuente:d.fuente||'',
+    placa:d.placa||''};
+}
+function smsg(t,cls,txt){
+  const el=document.getElementById('msg-'+t);
+  if(!el)return;
+  el.className='import-msg '+(cls==='error'?'im-err':'im-ok');el.textContent=txt;
+}
+
+// Manual
+function lsku(){
+  const s=document.getElementById('ms').value.trim();
+  const d=PESOS[s];
+  if(d){document.getElementById('mp').value=d.d;document.getElementById('mpk').value=d.p;toast('✅ '+d.d,'success');}
+}
+function addM(){
+  const num=document.getElementById('mn').value.trim();
+  if(!num){toast('Ingrese N° pedido','error');return;}
+  const sku=document.getElementById('ms').value.trim();
+  const und=parseInt(document.getElementById('mu').value)||1;
+  const pd=PESOS[sku];
+  const dist=(document.getElementById('mdi').value||'').toUpperCase();
+  ST.pedidos.push(mkP({
+    numero:num,canal:document.getElementById('mc').value,
+    cliente:document.getElementById('mcl').value,tel:document.getElementById('mt').value,
+    distrito:dist,depto:'LIMA',dir:document.getElementById('mdr').value,
+    producto:document.getElementById('mp').value,sku,und,
+    peso:pd?pd.p*und:parseFloat(document.getElementById('mpk').value)||0,
+    m3:pd?pd.m*und:0,precio:parseFloat(document.getElementById('mpr').value)||0,
+    ventana:document.getElementById('mv').value,fuente:'MANUAL',
+  }));
+  ['mn','mc','mcl','mt','mdr','ms','mp','mpk','mpr'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('mu').value=1;
+  save();renderAll();toast('✅ Pedido agregado','success');
+}
+
+// ══════════════════════════════════════════════
+// MOTOR DE RUTEO
+// ══════════════════════════════════════════════
+function getUnitIds(){return[...flota.camiones,...flota.motos].map(u=>u.id);}
+
+function renderMotor(){
+  const q=(document.getElementById('ms-in').value||'').toLowerCase();
+  const fz=document.getElementById('mf-zona').value;
+  const fu=document.getElementById('mf-und').value;
+  const lista=ST.pedidos.filter(p=>{
+    if(p.zona==='PROVINCIA')return false;
+    if(q&&!`${p.numero} ${p.cliente} ${p.distrito} ${p.producto}`.toLowerCase().includes(q))return false;
+    if(fz&&p.zona!==fz)return false;
+    if(fu&&p.unidad!==fu)return false;
+    return true;
+  });
+  document.getElementById('mcnt').textContent=`${lista.length} / ${ST.pedidos.filter(p=>p.zona!=='PROVINCIA').length} pedidos Lima`;
+  const uids=getUnitIds();
+  document.getElementById('motor-body').innerHTML=lista.map((p,i)=>{
+    const gi=ST.pedidos.indexOf(p);
+    const vb=p.ventana&&(p.ventana.includes('hasta 2PM')||p.ventana.includes('hasta 12M')||p.ventana.includes('hasta 1PM'))?'#FFFBEB':'';
+    const zc=p.zona.replace(/[^A-Z]/g,'');
+    const fuenteColor={ESPE:'#DBEAFE',RPTR:'#EDE9FE',BASE:'#DCFCE7',CONF:'#FEF3C7',TRANSITO:'#CCFBF1',MYBEES:'#F3E8FF',MANUAL:'#F3F4F6'}[p.fuente]||'#F3F4F6';
+    return `<tr>
+      <td style="color:var(--ink-soft);font-size:11px">${i+1}</td>
+      <td style="font-family:monospace;font-size:11.5px;font-weight:700">${p.numero}</td>
+      <td style="font-size:11px;color:var(--ink-soft)">${p.canal||'—'}</td>
+      <td><span class="zb z${zc}">${p.zona}</span></td>
+      <td style="font-size:12px">${p.distrito||'—'}</td>
+      <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px" title="${p.cliente}">${p.cliente||'—'}</td>
+      <td style="font-family:monospace;font-size:11px">${p.tel||'—'}</td>
+      <td style="background:${vb};font-size:11px;white-space:nowrap">${p.ventana||'—'}</td>
+      <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px" title="${p.producto}">${p.producto||'—'}</td>
+      <td style="text-align:center">${p.und||1}</td>
+      <td style="text-align:right;font-family:monospace">${(+p.peso||0).toFixed(1)}</td>
+      <td style="text-align:right;font-family:monospace;font-size:11px">${(+p.m3||0).toFixed(3)}</td>
+      <td style="text-align:right;font-family:monospace">${(+p.precio||0).toFixed(0)}</td>
+      <td><select class="us u${p.unidad.replace(/[^A-Z0-9]/g,'')}" onchange="sU(${gi},this.value,this)">
+        ${['SIN ASIGNAR',...uids,'PROVINCIA'].map(u=>`<option ${p.unidad===u?'selected':''}>${u}</option>`).join('')}
+      </select></td>
+      <td><select class="vs ${p.vuelta==='1ERA VUELTA'?'vv1':'vv2'}" onchange="sV(${gi},this.value,this)">
+        <option ${p.vuelta==='1ERA VUELTA'?'selected':''}>1ERA VUELTA</option>
+        <option ${p.vuelta==='2DA VUELTA'?'selected':''}>2DA VUELTA</option>
+      </select></td>
+      <td><span style="font-size:10.5px;padding:2px 7px;border-radius:10px;
+        background:${p.conf_estado==='CONFIRMADO'?'#DCFCE7':p.conf_estado==='RECHAZO'?'#FEE2E2':'#F3F4F6'};
+        color:${p.conf_estado==='CONFIRMADO'?'#166534':p.conf_estado==='RECHAZO'?'#991B1B':'#374151'}"
+      >${p.conf_estado||p.estado||'—'}</span></td>
+      <td><span style="font-size:10px;padding:2px 7px;border-radius:10px;background:${fuenteColor}">${p.fuente||'—'}</span></td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-s btn-sm" onclick="editP(${gi})" title="Editar">✏️</button>
+        <button class="btn btn-d btn-sm" onclick="delP(${gi})" title="Eliminar">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+  renderMotorRes();
+}
+
+function sU(i,v,sel){ST.pedidos[i].unidad=v;sel.className='us u'+v.replace(/[^A-Z0-9]/g,'');save();renderMotor();renderFlota();}
+function sV(i,v,sel){ST.pedidos[i].vuelta=v;sel.className='vs '+(v==='1ERA VUELTA'?'vv1':'vv2');save();}
+function delP(i){if(!confirm('¿Eliminar?'))return;ST.pedidos.splice(i,1);save();renderAll();}
+function clearM(){if(!confirm('¿Limpiar todos los pedidos?'))return;ST.pedidos=[];save();renderAll();}
+
+function renderMotorRes(){
+  const uids=[...flota.camiones,...flota.motos].map(u=>u.id);
+  const UCOL={C1:'#1A56E8',C2:'#1E40AF',C3:'#7C3AED',M1:'#0D9488',M2:'#0D9488',M3:'#0D9488',M4:'#0D9488'};
+  document.getElementById('motor-res').innerHTML=uids.map(uid=>{
+    const f=allUnits().find(x=>x.id===uid);
+    const asig=ST.pedidos.filter(p=>p.unidad===uid);
+    const kg=asig.reduce((s,p)=>s+(+p.peso||0),0);
+    const cap=f?f.cap_kg:3000;
+    const pct=Math.min(kg/cap,1);
+    const pcls=pct>.95?'cap-full':pct>.8?'cap-warn':'cap-ok';
+    const co=UCOL[uid]||'#1A56E8';
+    const ch=f?.chofer||'Sin asignar';
+    return `<div class="rc"><div class="rh"><div class="rl" style="color:${co}">${uid} — ${ch.length>14?ch.slice(0,13)+'…':ch}</div><span>${pct>.95?'⚠️':pct>.5?'🟡':'⬜'}</span></div>
+      <div class="rm"><span>Pedidos</span><span class="rv">${asig.length}</span></div>
+      <div class="rm"><span>Carga</span><span class="rv">${kg.toFixed(0)}/${cap} kg</span></div>
+      <div class="pb"><div class="pf ${pcls}" style="width:${pct*100}%"></div></div></div>`;
+  }).join('');
+}
+
+function autoAsig(){
+  const cams=flota.camiones.filter(u=>u.estado==='activa');
+  const mots=flota.motos.filter(u=>u.estado==='activa');
+  const zm={};
+  cams.forEach(c=>(c.zona||'').split('/').map(z=>z.trim()).forEach(z=>{if(!zm[z])zm[z]=c.id;}));
+  let mi=0;
+  ST.pedidos.forEach(p=>{
+    if(p.unidad!=='SIN ASIGNAR')return;
+    if(p.zona==='PROVINCIA'){p.unidad='PROVINCIA';return;}
+    if((+p.peso||0)<=5&&mots.length>0&&p.zona!=='NORTE'&&p.zona!=='SUR'){
+      p.unidad=mots[mi%mots.length].id;mi++;return;}
+    p.unidad=zm[p.zona]||cams[0]?.id||'SIN ASIGNAR';
+    if(p.ventana&&(p.ventana.includes('hasta 2PM')||p.ventana.includes('hasta 12M')||p.ventana.includes('hasta 1PM')))
+      p.vuelta='1ERA VUELTA';
+  });
+  save();renderAll();toast('🤖 Auto-asignación completada','success');
+}
+
+function expPlan(){
+  const h=['Unidad','Vuelta','Zona','Distrito','N° Pedido','Cliente','Teléfono','Ventana','Producto','Und','Peso kg','m³','S/.','Dirección','Estado','Fuente'];
+  const r=ST.pedidos.sort((a,b)=>a.unidad<b.unidad?-1:a.unidad>b.unidad?1:a.vuelta==='1ERA VUELTA'?-1:1)
+    .map(p=>[p.unidad,p.vuelta,p.zona,p.distrito,p.numero,p.cliente,p.tel,p.ventana,p.producto,p.und,
+      (+p.peso||0).toFixed(1),(+p.m3||0).toFixed(3),(+p.precio||0).toFixed(2),p.dir,p.conf_estado||p.estado,p.fuente]);
+  const csv=[h,...r].map(row=>row.map(c=>`"${String(c||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);
+  a.download='plan_rutas_'+new Date().toISOString().slice(0,10)+'.csv';a.click();
+  toast('📤 Plan exportado','success');
+}
+
+// ══════════════════════════════════════════════
+// MODAL EDITAR
+// ══════════════════════════════════════════════
+function editP(i){
+  editIdx=i;const p=ST.pedidos[i];
+  document.getElementById('mo-body').innerHTML=`
+    <div class="frow"><div class="field"><label>N° Pedido</label><input id="en" value="${p.numero}" readonly style="background:#F8FAFC"></div>
+    <div class="field"><label>Canal</label><input id="eca" value="${p.canal}"></div></div>
+    <div class="frow"><div class="field"><label>Cliente</label><input id="ecl" value="${p.cliente}"></div>
+    <div class="field"><label>Teléfono</label><input id="et" value="${p.tel}"></div></div>
+    <div class="frow"><div class="field"><label>Distrito</label><input id="edi" value="${p.distrito}"></div>
+    <div class="field"><label>Departamento</label><input id="edp" value="${p.depto}"></div></div>
+    <div class="field"><label>Dirección</label><input id="edr" value="${p.dir}"></div>
+    <div class="field"><label>Producto</label><input id="epr" value="${p.producto}"></div>
+    <div class="frow"><div class="field"><label>Peso kg</label><input id="ek" type="number" step="0.1" value="${p.peso}"></div>
+    <div class="field"><label>S/.</label><input id="epc" type="number" value="${p.precio}"></div></div>
+    <div class="frow"><div class="field"><label>Und.</label><input id="eu" type="number" value="${p.und}"></div>
+    <div class="field"><label>m³</label><input id="em" type="number" step="0.001" value="${p.m3}"></div></div>
+    <div class="field"><label>Ventana</label><select id="ev">
+      ${['MAÑANA (hasta 12M)','MAÑANA (hasta 1PM)','TARDE (hasta 2PM)','TARDE (hasta 3PM)','TARDE (hasta 4PM)','TARDE (desde 1PM)','TARDE (desde 2PM)','POR COORDENADAS','LLAMAR 30min antes']
+        .map(v=>`<option ${p.ventana===v?'selected':''}>${v}</option>`).join('')}
+    </select></div>`;
+  document.getElementById('mo-edit').classList.add('open');
+}
+function savE(){
+  const p=ST.pedidos[editIdx];
+  p.cliente=document.getElementById('ecl').value;p.tel=document.getElementById('et').value;
+  p.distrito=document.getElementById('edi').value.toUpperCase();
+  p.depto=document.getElementById('edp').value.toUpperCase();
+  p.canal=document.getElementById('eca').value;p.dir=document.getElementById('edr').value;
+  p.producto=document.getElementById('epr').value;
+  p.peso=parseFloat(document.getElementById('ek').value)||0;
+  p.m3=parseFloat(document.getElementById('em').value)||0;
+  p.precio=parseFloat(document.getElementById('epc').value)||0;
+  p.und=parseInt(document.getElementById('eu').value)||1;
+  p.ventana=document.getElementById('ev').value;
+  p.zona=gz(p.distrito,p.depto);
+  cmo();save();renderAll();toast('✅ Actualizado','success');
+}
+function cmo(){document.getElementById('mo-edit').classList.remove('open');}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')cmo();});
+
+// ══════════════════════════════════════════════
+// HOJAS DE RUTA
+// ══════════════════════════════════════════════
+const UC={C1:'#1D4ED8',C2:'#1E40AF',C3:'#6D28D9',M1:'#0D9488',M2:'#0D9488',M3:'#0D9488',M4:'#0D9488'};
+
+function renderRutas(){
+  const uids=getUnitIds();
+  document.getElementById('rutas-cont').innerHTML=uids.map(uid=>{
+    const f=allUnits().find(x=>x.id===uid);
+    const peds=ST.pedidos.filter(p=>p.unidad===uid).sort((a,b)=>{
+      if(a.vuelta!==b.vuelta)return a.vuelta==='1ERA VUELTA'?-1:1;
+      return a.zona<b.zona?-1:1;
+    });
+    if(!peds.length)return '';
+    const kg=peds.reduce((s,p)=>s+(+p.peso||0),0);
+    const sol=peds.reduce((s,p)=>s+(+p.precio||0),0);
+    const v1=peds.filter(p=>p.vuelta==='1ERA VUELTA').length;
+    const v2=peds.filter(p=>p.vuelta==='2DA VUELTA').length;
+    const co=UC[uid]||'#1D4ED8';
+    return `<div class="ruta-c" id="ruta-${uid}">
+      <div class="ruta-h" style="background:${co}12;border-bottom:1px solid ${co}30">
+        <div>
+          <div class="ruta-n" style="color:${co}">${uid} — ${f?.placa||'Sin placa'} · ${f?.chofer||'Sin chofer asignado'}</div>
+          <div class="ruta-m">
+            <span>📦 ${peds.length} pedidos</span><span>⚖️ ${kg.toFixed(1)} kg</span>
+            <span>🔁 1era: ${v1} · 2da: ${v2}</span><span>💰 S/ ${sol.toFixed(0)}</span>
+          </div>
+        </div>
+      </div>
+      <div class="tb-wrap"><table>
+        <thead><tr>
+          ${['Ord','Vuelta','Zona','Distrito','N° Pedido','Cliente','Teléfono','Ventana','Producto','Und','Kg','S/.','Dirección','Estado Entrega','Obs. Chofer']
+            .map(h=>`<th style="background:${co};color:#fff">${h}</th>`).join('')}
+        </tr></thead>
+        <tbody>${peds.map((p,i)=>{
+          const bg=p.vuelta==='1ERA VUELTA'?'#FFFBEB':'#ECFEFF';
+          const zc=p.zona.replace(/[^A-Z]/g,'');
+          return `<tr style="background:${bg}">
+            <td style="font-weight:700;text-align:center">${i+1}</td>
+            <td style="font-size:11px;font-weight:700;color:${p.vuelta==='1ERA VUELTA'?'#92400E':'#0E7490'}">${p.vuelta}</td>
+            <td><span class="zb z${zc}">${p.zona}</span></td>
+            <td style="font-size:12px">${p.distrito}</td>
+            <td style="font-family:monospace;font-size:11px;font-weight:700">${p.numero}</td>
+            <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${p.cliente}</td>
+            <td style="font-family:monospace;font-size:11px">${p.tel||'—'}</td>
+            <td style="font-size:11px">${p.ventana||'—'}</td>
+            <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${p.producto||'—'}</td>
+            <td style="text-align:center">${p.und||1}</td>
+            <td style="text-align:right;font-family:monospace">${(+p.peso||0).toFixed(1)}</td>
+            <td style="text-align:right;font-family:monospace">${(+p.precio||0).toFixed(0)}</td>
+            <td style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.dir||'—'}</td>
+            <td style="background:#F0FDF4">
+              <select style="font-size:11px;border:1px solid #BBF7D0;border-radius:3px;padding:2px 4px">
+                <option>Pendiente</option><option>✅ Entregado</option><option>❌ Rechazo</option><option>🔄 Reprogramado</option>
+              </select></td>
+            <td style="background:#FFF7ED">
+              <input placeholder="Obs..." style="font-size:11px;width:100px;border:none;background:transparent;padding:2px"></td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════
+// PROVINCIAS
+// ══════════════════════════════════════════════
+function renderProvincias(){
+  const pv=ST.pedidos.filter(p=>p.zona==='PROVINCIA');
+  document.getElementById('pv-cnt').textContent=pv.length;
+  document.getElementById('pv-kg').textContent=pv.reduce((s,p)=>s+(+p.peso||0),0).toFixed(1)+' kg';
+  document.getElementById('pv-sol').textContent='S/ '+pv.reduce((s,p)=>s+(+p.precio||0),0).toFixed(0);
+  document.getElementById('pv-body').innerHTML=pv.map(p=>`<tr>
+    <td style="font-family:monospace;font-size:11px;font-weight:700">${p.numero}</td>
+    <td style="font-size:11px">${p.canal||'—'}</td><td>${p.cliente||'—'}</td>
+    <td style="font-family:monospace;font-size:11px">${p.tel||'—'}</td>
+    <td><span style="font-size:10.5px;padding:2px 8px;border-radius:10px;background:#F3E8FF;color:#9333EA;font-weight:700">${p.depto||'—'}</span></td>
+    <td style="font-size:12px">${p.distrito||'—'}</td>
+    <td style="font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.dir||'—'}</td>
+    <td style="font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.producto||'—'}</td>
+    <td style="text-align:right;font-family:monospace">${(+p.peso||0).toFixed(1)}</td>
+    <td style="text-align:right;font-family:monospace">${(+p.precio||0).toFixed(0)}</td>
+    <td><select style="font-size:11.5px;padding:3px 6px;border:1.5px solid #DDD8FE;border-radius:4px;background:#F5F3FF;color:#6D28D9;font-weight:600">
+      <option>Enotria</option><option>Toscano</option><option>Meta Logistic</option></select></td>
+    <td><select style="font-size:11.5px;padding:3px 6px;border:1.5px solid #BBF7D0;border-radius:4px;background:#F0FDF4;color:#166534;font-weight:600">
+      <option>Pendiente</option><option>Coordinado</option><option>En tránsito</option><option>Entregado</option></select></td>
+  </tr>`).join('');
+}
+
+// ══════════════════════════════════════════════
+// RECHAZOS
+// ══════════════════════════════════════════════
+function addR(){
+  const n=document.getElementById('rn').value.trim();
+  if(!n){toast('Ingrese N° pedido','error');return;}
+  ST.rechazos.push({n,cli:document.getElementById('rcl').value,dist:document.getElementById('rdi').value,
+    canal:document.getElementById('rca').value,und:document.getElementById('run').value,
+    mot:document.getElementById('rmo').value,rep:document.getElementById('rrp').value,
+    obs:document.getElementById('rob').value,res:'Pendiente'});
+  ['rn','rcl','rdi','rca','rob'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  save();renderRechazos();toast('Rechazo registrado','success');
+}
+function renderRechazos(){
+  const r=ST.rechazos;
+  const aus=r.filter(x=>x.mot.includes('ausente')).length;
+  const hor=r.filter(x=>x.mot.includes('horario')).length;
+  const prd=r.filter(x=>x.mot.includes('incorrecto')).length;
+  const res=r.filter(x=>x.res==='Sí').length;
+  const d=ST.pedidos.filter(p=>p.zona!=='PROVINCIA').length;
+  const pct=d>0?(r.length/d*100).toFixed(1):'0.0';
+  document.getElementById('r-tot').textContent=r.length;
+  document.getElementById('r-pct').textContent=pct+'%';
+  document.getElementById('r-pct-t').className='kt '+(parseFloat(pct)>8?'danger':parseFloat(pct)>4?'warn':'ok');
+  document.getElementById('r-aus').textContent=aus;
+  document.getElementById('r-hor').textContent=hor;
+  document.getElementById('r-prod').textContent=prd;
+  document.getElementById('r-resc').textContent=res;
+  document.getElementById('rb').innerHTML=r.map((x,i)=>`<tr>
+    <td>${i+1}</td><td style="font-family:monospace;font-size:11px;font-weight:700">${x.n}</td>
+    <td>${x.cli||'—'}</td><td>${x.dist||'—'}</td><td>${x.canal||'—'}</td>
+    <td><span style="font-size:11px;padding:2px 7px;border-radius:10px;background:#DBEAFE;color:#1E40AF;font-weight:700">${x.und}</span></td>
+    <td style="font-size:11.5px;color:var(--danger)">${x.mot}</td>
+    <td>${x.rep}</td><td style="font-size:11px;color:var(--ink-soft)">${x.obs||'—'}</td>
+    <td><select style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:3px"
+      onchange="ST.rechazos[${i}].res=this.value;save();renderRechazos()">
+      <option ${x.res==='Pendiente'?'selected':''}>Pendiente</option>
+      <option ${x.res==='Sí'?'selected':''}>Sí</option>
+      <option ${x.res==='No'?'selected':''}>No</option>
+    </select></td>
+    <td><button class="btn btn-d btn-sm" onclick="ST.rechazos.splice(${i},1);save();renderRechazos()">🗑</button></td>
+  </tr>`).join('');
+}
+function expR(){
+  const h=['#','Pedido','Cliente','Distrito','Canal','Unidad','Motivo','Reprogramar','Obs','Rescatado'];
+  const csv=[h,...ST.rechazos.map((x,i)=>[i+1,x.n,x.cli,x.dist,x.canal,x.und,x.mot,x.rep,x.obs,x.res])].map(r=>r.join(',')).join('\n');
+  const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download='rechazos_'+new Date().toISOString().slice(0,10)+'.csv';a.click();
+}
+
+// ══════════════════════════════════════════════
+// KPI
+// ══════════════════════════════════════════════
+const KDEFS=[
+  {g:'Entregas',co:'#1A56E8',items:[
+    {k:'ns',l:'NS% Entregas OK',m:92,f:'%',ok:v=>v>=92,wa:v=>v>=85},
+    {k:'rech',l:'% Rechazos',m:8,f:'%',ok:v=>v<=8,wa:v=>v<=12,inv:1},
+    {k:'v1p',l:'1era vuelta %',m:70,f:'%',ok:v=>v>=70,wa:v=>v>=50},
+    {k:'rsc',l:'% Rescatados',m:85,f:'%',ok:v=>v>=85,wa:v=>v>=70},
+  ]},
+  {g:'Flota',co:'#0D9488',items:[
+    {k:'c1',l:'Uso C1 %',m:75,f:'%',ok:v=>v>=75,wa:v=>v>=50},
+    {k:'c2',l:'Uso C2 %',m:75,f:'%',ok:v=>v>=75,wa:v=>v>=50},
+    {k:'vlt',l:'Vueltas prom.',m:2,f:'',ok:v=>v>=2,wa:v=>v>=1},
+    {k:'inc',l:'Incidentes',m:0,f:'',ok:v=>v===0,wa:v=>v<=1,inv:1},
+  ]},
+];
+function renderKpi(){
+  document.getElementById('kpi-cont').innerHTML=KDEFS.map(g=>`
+    <div class="card" style="margin-bottom:14px">
+      <div class="ch" style="background:${g.co}10;border-bottom:1px solid ${g.co}20">
+        <span class="ct" style="color:${g.co}">${g.g}</span></div>
+      <div class="cb"><div class="kg">
+        ${g.items.map(it=>{
+          const v=ST.kpi[it.k]??'';const n=parseFloat(v)||0;
+          const cls=v!==''?(it.ok(n)?'ok':it.wa(n)?'warn':'danger'):'';
+          return `<div class="kt ${cls}">
+            <div class="kv">${v!==''?(n.toFixed(it.f?1:0)+it.f):'—'}</div>
+            <div class="kl">${it.l}</div>
+            <div class="km" style="color:var(--ink-soft)">Meta: ${it.m}${it.f}</div>
+            <input class="ki" type="number" step="0.1" value="${v}" placeholder="Ingresar"
+              oninput="ST.kpi['${it.k}']=this.value;save();renderKpi()">
+          </div>`;
+        }).join('')}
+      </div></div>
+    </div>`).join('');
+}
+
+// Toast
+let _tt;
+function toast(msg,t='info'){
+  const el=document.getElementById('toast');
+  el.textContent=msg;el.className='toast '+t+' show';
+  clearTimeout(_tt);_tt=setTimeout(()=>el.classList.remove('show'),3200);
+}
+
+function renderAll(){renderMotor();renderRutas();renderProvincias();renderFlota();}
+</script>
+</body>
+</html>
