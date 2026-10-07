@@ -276,6 +276,8 @@ tbody td:first-child{padding-left:14px}
 </style>
 <!-- SheetJS para leer archivos .xlsx directamente sin exportar a CSV -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV/XN/WPeE=" crossorigin=""></script>
 </head>
 <body>
 
@@ -558,6 +560,25 @@ tbody td:first-child{padding-left:14px}
   </table></div>
   <div id="motor-pager"></div>
 </div></div>
+
+  <!-- MAPA DE DESPACHOS LIMA -->
+  <div class="card" style="margin-top:16px">
+    <div class="ch" style="display:flex;justify-content:space-between;align-items:center">
+      <span class="ct">🗺️ Mapa de Puntos de Despacho — Lima</span>
+      <button class="btn btn-s btn-sm" onclick="renderMotorMap()">🔄 Actualizar mapa</button>
+    </div>
+    <div class="cb">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:11px" id="map-legend">
+        <span style="background:#1A56E8;color:#fff;padding:2px 8px;border-radius:10px">● C1</span>
+        <span style="background:#1E40AF;color:#fff;padding:2px 8px;border-radius:10px">● C2</span>
+        <span style="background:#7C3AED;color:#fff;padding:2px 8px;border-radius:10px">● C3</span>
+        <span style="background:#0D9488;color:#fff;padding:2px 8px;border-radius:10px">● Motos (M1-M4)</span>
+        <span style="background:#6B7280;color:#fff;padding:2px 8px;border-radius:10px">● Sin asignar</span>
+      </div>
+      <div id="motor-map" style="height:480px;border-radius:8px;border:1px solid var(--brd);"></div>
+      <div id="motor-map-stats" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-top:10px"></div>
+    </div>
+  </div>
 </section>
 
 <!-- ══════════════════════════════════════════════════════ -->
@@ -1562,6 +1583,7 @@ function renderMotor(pgReset){
   const fz=document.getElementById('mf-zona').value;
   const fu=document.getElementById('mf-und').value;
   const lista=ST.pedidos.filter(p=>{
+    if(p.fuente!=='BASE'&&p.fuente!=='MANUAL')return false;
     if(p.zona==='PROVINCIA')return false;
     if(q&&!`${p.numero} ${p.cliente} ${p.distrito} ${p.producto}`.toLowerCase().includes(q))return false;
     if(fz&&p.zona!==fz)return false;
@@ -1569,7 +1591,8 @@ function renderMotor(pgReset){
     return true;
   });
   const total=lista.length;
-  const totalLima=ST.pedidos.filter(p=>p.zona!=='PROVINCIA').length;
+  const basePedidos=ST.pedidos.filter(p=>p.fuente==='BASE'||p.fuente==='MANUAL');
+  const totalLima=basePedidos.filter(p=>p.zona!=='PROVINCIA').length;
   const totalPags=Math.max(1,Math.ceil(total/MOTOR_PG_SIZE));
   if(motorPage>=totalPags)motorPage=totalPags-1;
   const desde=motorPage*MOTOR_PG_SIZE;
@@ -1659,22 +1682,123 @@ function renderMotorRes(){
   }).join('');
 }
 
+const MOTO_KW=['celular','smartphone','telefono','teléfono','tablet','tableta','smartwatch','reloj inteligente','wearable','cafetera','cafeteras','audifono','audífono','auricular','earphone','earbuds','licuadora','batidora','tostadora','plancha','secadora cabello','secador','cargador','power bank','powerbank','router','modem','módem','impresora portatil','calculadora','radio','parlante','speaker','accesorio','foco','mouse','teclado','joystick','gamepad'];
+const CAMION_KW=['televisor','television','televisión','tv ','tv,','smart tv','pantalla','monitor','refrigerador','refrigeradora','nevera','cocina','horno','lavadora','lavarropa','lavarropas','congelador','congeladora','refrigeración','secadora ropa','campana','campanas','extractor','aire acondicionado','split','minibar','frigobar','comoda','cómoda','ropero','armario','escritorio','mesa','silla','sillon','sillón','sofá','sofa','colchon','colchón','cama','estructura cama','estante','rack','mueble','equipo de sonido','home theater','impresora laser','impresora láser','proyector','server','servidor','ups ','cpu ','computadora','desktop','laptop 17','aire acondi'];
+
+function esMoto(prod){
+  const p=(prod||'').toLowerCase();
+  if(CAMION_KW.some(k=>p.includes(k)))return false;
+  if(MOTO_KW.some(k=>p.includes(k)))return true;
+  return false;
+}
+
 function autoAsig(){
   const cams=flota.camiones.filter(u=>u.estado==='activa');
   const mots=flota.motos.filter(u=>u.estado==='activa');
   const zm={};
   cams.forEach(c=>(c.zona||'').split('/').map(z=>z.trim()).forEach(z=>{if(!zm[z])zm[z]=c.id;}));
-  let mi=0;
-  ST.pedidos.forEach(p=>{
+  let mi=0,ci=0;
+  const basePeds=ST.pedidos.filter(p=>p.fuente==='BASE'||p.fuente==='MANUAL');
+  basePeds.forEach(p=>{
     if(p.unidad!=='SIN ASIGNAR')return;
     if(p.zona==='PROVINCIA'){p.unidad='PROVINCIA';return;}
-    if((+p.peso||0)<=5&&mots.length>0&&p.zona!=='NORTE'&&p.zona!=='SUR'){
-      p.unidad=mots[mi%mots.length].id;mi++;return;}
-    p.unidad=zm[p.zona]||cams[0]?.id||'SIN ASIGNAR';
+    const prod=(p.producto||'').toLowerCase();
+    const peso=(+p.peso||0);
+    // Clasificación: moto para productos pequeños, camión para grandes
+    const usaMoto=mots.length>0&&esMoto(prod)&&peso<=15;
+    if(usaMoto){
+      p.unidad=mots[mi%mots.length].id;
+      p.tipo_asig='MOTO';
+      mi++;
+    } else {
+      p.unidad=zm[p.zona]||cams[ci%Math.max(cams.length,1)]?.id||'SIN ASIGNAR';
+      p.tipo_asig='CAMION';
+      ci++;
+    }
     if(p.ventana&&(p.ventana.includes('hasta 2PM')||p.ventana.includes('hasta 12M')||p.ventana.includes('hasta 1PM')))
       p.vuelta='1ERA VUELTA';
+    else p.vuelta='2DA VUELTA';
   });
-  save();renderAll();toast('🤖 Auto-asignación completada','success');
+  save();renderAll();renderMotorMap();
+  const nMoto=basePeds.filter(p=>p.tipo_asig==='MOTO').length;
+  const nCam=basePeds.filter(p=>p.tipo_asig==='CAMION').length;
+  toast(`🤖 Auto-asignación: ${nCam} camión · ${nMoto} moto`,'success');
+}
+
+// ══════════════════════════════════════════════
+// MAPA LEAFLET — Motor de Ruteo
+// ══════════════════════════════════════════════
+let motorMapInst=null;
+const LIMA_DISTRITOS={
+  'MIRAFLORES':[-12.1191,-77.0282],'SAN ISIDRO':[-12.0940,-77.0399],'SURCO':[-12.1469,-76.9967],
+  'SURQUILLO':[-12.1126,-77.0001],'BARRANCO':[-12.1513,-77.0217],'CHORRILLOS':[-12.1737,-77.0176],
+  'LA MOLINA':[-12.0841,-76.9380],'ATE':[-12.0267,-76.9138],'SANTA ANITA':[-12.0454,-76.9666],
+  'SAN LUIS':[-12.0786,-76.9951],'INDEPENDENCIA':[-11.9995,-77.0559],'LOS OLIVOS':[-11.9986,-77.0747],
+  'SAN MARTIN DE PORRES':[-12.0052,-77.0861],'COMAS':[-11.9331,-77.0527],'CARABAYLLO':[-11.8725,-77.0333],
+  'PUENTE PIEDRA':[-11.8650,-77.0769],'SAN JUAN DE LURIGANCHO':[-12.0178,-76.9931],
+  'EL AGUSTINO':[-12.0479,-77.0065],'VILLA EL SALVADOR':[-12.2136,-76.9395],
+  'VILLA MARIA DEL TRIUNFO':[-12.1772,-76.9462],'SAN JUAN DE MIRAFLORES':[-12.1547,-76.9725],
+  'LURIN':[-12.2765,-76.8699],'PACHACAMAC':[-12.2287,-76.8773],'BREÑA':[-12.0700,-77.0483],
+  'JESUS MARIA':[-12.0717,-77.0397],'LINCE':[-12.0836,-77.0330],'MAGDALENA':[-12.0917,-77.0722],
+  'PUEBLO LIBRE':[-12.0773,-77.0629],'SAN MIGUEL':[-12.0769,-77.0847],'SAN BORJA':[-12.1022,-77.0047],
+  'LA VICTORIA':[-12.0660,-77.0135],'LIMA':[-12.0464,-77.0428],
+  'RIMAC':[-12.0388,-77.0282],'SAN MARTIN':[-12.0052,-77.0861],'LURIGANCHO':[-11.9872,-76.9013],
+  'CIENEGUILLA':[-12.0731,-76.8283],'CALLAO':[-12.0561,-77.1182],'BELLAVISTA':[-12.0623,-77.1042],
+  'VENTANILLA':[-11.8757,-77.1347],'HUARAL':[-11.4973,-77.2094],'CHACLACAYO':[-11.9774,-76.7658],
+  'ATE-VITARTE':[-12.0267,-76.9138],'CARMEN DE LA LEGUA':[-12.0516,-77.1038]
+};
+const UNIT_COL={C1:'#1A56E8',C2:'#1E40AF',C3:'#7C3AED',M1:'#0D9488',M2:'#10B981',M3:'#059669',M4:'#047857','SIN ASIGNAR':'#6B7280','PROVINCIA':'#F59E0B'};
+
+function getCoords(dist){
+  const d=(dist||'').toUpperCase().trim();
+  if(LIMA_DISTRITOS[d])return LIMA_DISTRITOS[d];
+  // Búsqueda parcial
+  const key=Object.keys(LIMA_DISTRITOS).find(k=>d.includes(k)||k.includes(d));
+  return key?LIMA_DISTRITOS[key]:null;
+}
+
+function renderMotorMap(){
+  const el=document.getElementById('motor-map');
+  if(!el)return;
+  // Inicializar mapa si no existe
+  if(!motorMapInst){
+    motorMapInst=L.map('motor-map',{center:[-12.05,-77.03],zoom:11});
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      attribution:'© OpenStreetMap contributors',maxZoom:18
+    }).addTo(motorMapInst);
+  } else {
+    motorMapInst.eachLayer(l=>{if(l instanceof L.Marker||l instanceof L.CircleMarker)motorMapInst.removeLayer(l);});
+  }
+  const basePeds=ST.pedidos.filter(p=>p.fuente==='BASE'||p.fuente==='MANUAL');
+  const sinCoords=[];
+  const stats={};
+  basePeds.forEach(p=>{
+    const uid=p.unidad||'SIN ASIGNAR';
+    if(!stats[uid])stats[uid]={cnt:0,kg:0,val:0};
+    stats[uid].cnt++;stats[uid].kg+=(+p.peso||0);stats[uid].val+=(+p.precio||0);
+    const coords=getCoords(p.distrito);
+    if(!coords){sinCoords.push(p.distrito);return;}
+    const col=UNIT_COL[uid]||'#6B7280';
+    // Añadir pequeño jitter para evitar puntos superpuestos
+    const jlat=(Math.random()-0.5)*0.005;
+    const jlng=(Math.random()-0.5)*0.005;
+    const circle=L.circleMarker([coords[0]+jlat,coords[1]+jlng],{
+      radius:9,fillColor:col,color:'#fff',weight:2,opacity:1,fillOpacity:0.92
+    });
+    circle.bindTooltip(`<b>${p.numero}</b><br>${p.cliente}<br>${p.producto||'—'}<br>${p.distrito}<br><b>${uid}</b>`,{sticky:true});
+    circle.addTo(motorMapInst);
+  });
+  // Stats por unidad
+  const statsEl=document.getElementById('motor-map-stats');
+  if(statsEl){
+    statsEl.innerHTML=Object.entries(stats).sort((a,b)=>b[1].cnt-a[1].cnt).map(([uid,v])=>{
+      const col=UNIT_COL[uid]||'#6B7280';
+      return `<div style="background:var(--bg-card);border:1px solid var(--brd);border-radius:8px;padding:10px;border-left:4px solid ${col}">
+        <div style="font-weight:700;font-size:13px;color:${col}">${uid}</div>
+        <div style="font-size:11px;color:var(--ink-soft)">${v.cnt} pedidos · ${v.kg.toFixed(0)} kg · S/ ${v.val.toLocaleString('es-PE',{maximumFractionDigits:0})}</div>
+      </div>`;
+    }).join('');
+  }
 }
 
 function expPlan(){
