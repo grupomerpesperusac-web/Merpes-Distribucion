@@ -529,6 +529,25 @@ tbody td:first-child{padding-left:14px}
 <!-- ══════════════════════════════════════════════════════ -->
 <section class="sec" id="sec-motor">
   <div class="ph"><h1>Motor de Ruteo — Plan del Día</h1><p>Asigne unidad y vuelta a cada pedido. Capacidad se actualiza en tiempo real.</p></div>
+  <!-- MAPA DE DESPACHOS LIMA — arriba de la tabla -->
+  <div class="card" style="margin-bottom:14px" id="motor-map-card">
+    <div class="ch" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+      <span class="ct">🗺️ Mapa de Puntos de Despacho — Lima</span>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px;align-items:center">
+        <span style="background:#1A56E8;color:#fff;padding:2px 8px;border-radius:10px">● C1</span>
+        <span style="background:#1E40AF;color:#fff;padding:2px 8px;border-radius:10px">● C2</span>
+        <span style="background:#7C3AED;color:#fff;padding:2px 8px;border-radius:10px">● C3</span>
+        <span style="background:#0D9488;color:#fff;padding:2px 8px;border-radius:10px">● Motos</span>
+        <span style="background:#6B7280;color:#fff;padding:2px 8px;border-radius:10px">● Sin asignar</span>
+        <button class="btn btn-s btn-sm" onclick="initMotorMap()">🔄 Actualizar</button>
+      </div>
+    </div>
+    <div class="cb" style="padding:10px">
+      <div id="motor-map" style="height:400px;border-radius:8px;border:1px solid var(--brd);background:#e8f4f8;"></div>
+      <div id="motor-map-stats" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:10px"></div>
+    </div>
+  </div>
+
   <div id="motor-res" class="rg"></div>
   <div class="mtb">
     <input class="si" id="ms-in" placeholder="🔍 Pedido, cliente, distrito..." oninput="renderMotor(true)">
@@ -542,7 +561,8 @@ tbody td:first-child{padding-left:14px}
       <option>SIN ASIGNAR</option><option>C1</option><option>C2</option><option>C3</option>
       <option>M1</option><option>M2</option><option>M3</option><option>M4</option><option>PROVINCIA</option>
     </select>
-    <button class="btn btn-s btn-sm" onclick="autoAsig()">🤖 Auto-asignar</button>
+    <button class="btn btn-s btn-sm" onclick="autoAsig(false)" title="Sugerencia: asigna solo los pedidos SIN ASIGNAR">🤖 Sugerir (pendientes)</button>
+    <button class="btn btn-s btn-sm" style="background:#F59E0B;border-color:#D97706" onclick="autoAsig(true)" title="Re-asigna TODOS los pedidos de la Base Diaria desde cero">🔄 Re-asignar todo</button>
     <button class="btn btn-g btn-sm" onclick="expPlan()">📤 Exportar CSV</button>
     <button class="btn btn-d btn-sm" onclick="clearM()">🗑 Limpiar todo</button>
     <span id="mcnt" style="font-size:12px;color:var(--ink-soft);margin-left:auto"></span>
@@ -560,25 +580,6 @@ tbody td:first-child{padding-left:14px}
   </table></div>
   <div id="motor-pager"></div>
 </div></div>
-
-  <!-- MAPA DE DESPACHOS LIMA -->
-  <div class="card" style="margin-top:16px">
-    <div class="ch" style="display:flex;justify-content:space-between;align-items:center">
-      <span class="ct">🗺️ Mapa de Puntos de Despacho — Lima</span>
-      <button class="btn btn-s btn-sm" onclick="renderMotorMap()">🔄 Actualizar mapa</button>
-    </div>
-    <div class="cb">
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:11px" id="map-legend">
-        <span style="background:#1A56E8;color:#fff;padding:2px 8px;border-radius:10px">● C1</span>
-        <span style="background:#1E40AF;color:#fff;padding:2px 8px;border-radius:10px">● C2</span>
-        <span style="background:#7C3AED;color:#fff;padding:2px 8px;border-radius:10px">● C3</span>
-        <span style="background:#0D9488;color:#fff;padding:2px 8px;border-radius:10px">● Motos (M1-M4)</span>
-        <span style="background:#6B7280;color:#fff;padding:2px 8px;border-radius:10px">● Sin asignar</span>
-      </div>
-      <div id="motor-map" style="height:480px;border-radius:8px;border:1px solid var(--brd);"></div>
-      <div id="motor-map-stats" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-top:10px"></div>
-    </div>
-  </div>
 </section>
 
 <!-- ══════════════════════════════════════════════════════ -->
@@ -937,6 +938,7 @@ function showTab(id,btn){
   if(id==='rutas')renderRutas();
   if(id==='provincias')renderProvincias();
   if(id==='rechazos')renderRechazos();
+  if(id==='motor')initMotorMap();
 }
 
 // ══════════════════════════════════════════════
@@ -1692,19 +1694,19 @@ function esMoto(prod){
   return false;
 }
 
-function autoAsig(){
+function autoAsig(forzar){
   const cams=flota.camiones.filter(u=>u.estado==='activa');
   const mots=flota.motos.filter(u=>u.estado==='activa');
   const zm={};
   cams.forEach(c=>(c.zona||'').split('/').map(z=>z.trim()).forEach(z=>{if(!zm[z])zm[z]=c.id;}));
   let mi=0,ci=0;
   const basePeds=ST.pedidos.filter(p=>p.fuente==='BASE'||p.fuente==='MANUAL');
-  basePeds.forEach(p=>{
-    if(p.unidad!=='SIN ASIGNAR')return;
-    if(p.zona==='PROVINCIA'){p.unidad='PROVINCIA';return;}
+  // Si forzar=true re-asigna todos; si false solo los SIN ASIGNAR
+  const aAsignar=forzar?basePeds:basePeds.filter(p=>p.unidad==='SIN ASIGNAR');
+  aAsignar.forEach(p=>{
+    if(p.zona==='PROVINCIA'){p.unidad='PROVINCIA';p.tipo_asig='PROVINCIA';return;}
     const prod=(p.producto||'').toLowerCase();
     const peso=(+p.peso||0);
-    // Clasificación: moto para productos pequeños, camión para grandes
     const usaMoto=mots.length>0&&esMoto(prod)&&peso<=15;
     if(usaMoto){
       p.unidad=mots[mi%mots.length].id;
@@ -1719,16 +1721,39 @@ function autoAsig(){
       p.vuelta='1ERA VUELTA';
     else p.vuelta='2DA VUELTA';
   });
-  save();renderAll();renderMotorMap();
+  save();renderAll();
+  if(motorMapReady)renderMotorMap();else initMotorMap();
   const nMoto=basePeds.filter(p=>p.tipo_asig==='MOTO').length;
   const nCam=basePeds.filter(p=>p.tipo_asig==='CAMION').length;
-  toast(`🤖 Auto-asignación: ${nCam} camión · ${nMoto} moto`,'success');
+  const accion=forzar?'Re-asignación completa':'Sugerencia aplicada';
+  toast(`🤖 ${accion}: ${nCam} camión · ${nMoto} moto`,'success');
 }
 
 // ══════════════════════════════════════════════
 // MAPA LEAFLET — Motor de Ruteo
 // ══════════════════════════════════════════════
 let motorMapInst=null;
+let motorMapReady=false;
+
+// Inicialización robusta: crea el mapa solo cuando el div es visible y tiene tamaño
+function initMotorMap(){
+  const el=document.getElementById('motor-map');
+  if(!el)return;
+  if(!motorMapInst){
+    try{
+      motorMapInst=L.map('motor-map',{center:[-12.05,-77.03],zoom:11,zoomControl:true});
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+        attribution:'© <a href="https://openstreetmap.org">OpenStreetMap</a>',maxZoom:18
+      }).addTo(motorMapInst);
+      motorMapReady=true;
+    }catch(e){console.warn('Leaflet init error:',e);return;}
+  }
+  // Forzar re-cálculo de tamaño (crítico si la pestaña no estaba visible)
+  setTimeout(()=>{
+    if(motorMapInst){motorMapInst.invalidateSize();renderMotorMap();}
+  },100);
+}
+
 const LIMA_DISTRITOS={
   'MIRAFLORES':[-12.1191,-77.0282],'SAN ISIDRO':[-12.0940,-77.0399],'SURCO':[-12.1469,-76.9967],
   'SURQUILLO':[-12.1126,-77.0001],'BARRANCO':[-12.1513,-77.0217],'CHORRILLOS':[-12.1737,-77.0176],
@@ -1758,17 +1783,9 @@ function getCoords(dist){
 }
 
 function renderMotorMap(){
-  const el=document.getElementById('motor-map');
-  if(!el)return;
-  // Inicializar mapa si no existe
-  if(!motorMapInst){
-    motorMapInst=L.map('motor-map',{center:[-12.05,-77.03],zoom:11});
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-      attribution:'© OpenStreetMap contributors',maxZoom:18
-    }).addTo(motorMapInst);
-  } else {
-    motorMapInst.eachLayer(l=>{if(l instanceof L.Marker||l instanceof L.CircleMarker)motorMapInst.removeLayer(l);});
-  }
+  if(!motorMapInst||!motorMapReady)return;
+  // Limpiar solo marcadores, mantener tile layer
+  motorMapInst.eachLayer(l=>{if(l instanceof L.CircleMarker||l instanceof L.Marker)motorMapInst.removeLayer(l);});
   const basePeds=ST.pedidos.filter(p=>p.fuente==='BASE'||p.fuente==='MANUAL');
   const sinCoords=[];
   const stats={};
