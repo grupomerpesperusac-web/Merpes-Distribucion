@@ -274,6 +274,8 @@ tbody td:first-child{padding-left:14px}
   .pills{gap:8px}
 }
 </style>
+<!-- SheetJS para leer archivos .xlsx directamente sin exportar a CSV -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -1030,7 +1032,73 @@ function dov(e,id){e.preventDefault();document.getElementById(id).classList.add(
 function dlv(id){document.getElementById(id).classList.remove('dov')}
 function drp(e,t){e.preventDefault();dlv('iz-'+t);const f=e.dataTransfer.files[0];if(f)lfo(f,t);}
 function lf(e,t){const f=e.target.files[0];if(f)lfo(f,t);}
-function lfo(f,t){const r=new FileReader();r.onload=ev=>csv(ev.target.result,t);r.readAsText(f,'UTF-8');}
+// Mapeo: tipo de reporte → nombre de hoja preferida en el .xlsx
+// Si la hoja no existe, se usa la primera hoja disponible
+const XLSX_SHEET_MAP={
+  myb:  ['DATA','data','Data'],
+  trans:['TRANSITO','Transito','transito','TRÁNSITO'],
+  base: ['BASE DIARIA','Base Diaria','base diaria','BASEDIARIA'],
+  conf: ['BASE DIARIA','Base Diaria','base diaria','BASEDIARIA'],
+  espe: ['ESPE','Espe','espe','Sheet1','Hoja1'],
+  rptr: ['RPTR','Rptr','rptr','Sheet1','Hoja1'],
+};
+
+function lfo(f,t){
+  const name=(f.name||'').toLowerCase();
+  if(name.endsWith('.xlsx')||name.endsWith('.xls')||name.endsWith('.xlsm')){
+    // Leer como binario con SheetJS
+    const reader=new FileReader();
+    reader.onload=function(ev){
+      try{
+        if(typeof XLSX==='undefined'){
+          smsg(t,'error','SheetJS no cargó — espera unos segundos y vuelve a intentar.');
+          return;
+        }
+        const wb=XLSX.read(ev.target.result,{type:'binary',cellDates:true});
+        // Seleccionar la hoja correcta
+        const prefs=XLSX_SHEET_MAP[t]||[];
+        let sheetName=null;
+        for(const p of prefs){
+          if(wb.SheetNames.includes(p)){sheetName=p;break;}
+        }
+        if(!sheetName) sheetName=wb.SheetNames[0];
+        console.log('[lfo] Archivo:',f.name,' Tipo:',t,' Hoja elegida:',sheetName,
+                    ' Hojas disponibles:',wb.SheetNames);
+        const ws=wb.Sheets[sheetName];
+        // Convertir a array de objetos (primera fila = headers)
+        const rawRows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
+        if(!rawRows||rawRows.length===0){
+          smsg(t,'error','La hoja "'+sheetName+'" está vacía o sin datos.');
+          return;
+        }
+        // Normalizar keys a minúsculas para que todos los parsers funcionen igual
+        // que con CSV (donde csv() ya hacía hdr.toLowerCase())
+        const rows=rawRows.map(r=>{
+          const norm={};
+          Object.keys(r).forEach(k=>{norm[k.toLowerCase().trim()]=r[k];});
+          return norm;
+        });
+        console.log('[lfo] Filas leídas:',rows.length,' Headers:',Object.keys(rows[0]));
+        // Dispatch al parser correspondiente
+        if(t==='espe')     pE(rows);
+        else if(t==='rptr')pR(rows);
+        else if(t==='base')pBase(rows);
+        else if(t==='conf')pConf(rows);
+        else if(t==='trans')pTrans(rows);
+        else if(t==='myb') pMyb(rows);
+      }catch(err){
+        console.error('[lfo xlsx] Error:',err);
+        smsg(t,'error','Error leyendo Excel: '+err.message);
+      }
+    };
+    reader.readAsBinaryString(f);
+  } else {
+    // CSV / TSV: leer como texto UTF-8
+    const reader=new FileReader();
+    reader.onload=ev=>csv(ev.target.result,t);
+    reader.readAsText(f,'UTF-8');
+  }
+}
 function pp(t){const v=document.getElementById('pa-'+t).value;if(!v.trim()){smsg(t,'error','Sin datos');return;}csv(v,t);document.getElementById('pa-'+t).value='';}
 
 function csv(txt,t){
@@ -1112,14 +1180,25 @@ function pBase(rows){
     const ex=ST.pedidos.find(p=>p.numero===num);
     if(ex){
       if(r['estado'])ex.base_estado=(r['estado']||'').toUpperCase();
+      if(r['placa']&&ex.placa==='SIN ASIGNAR')ex.placa=(r['placa']||'').toUpperCase();
+      if(r['fuerza de venta']&&!ex.canal)ex.canal=(r['fuerza de venta']||'').toUpperCase();
       if(r['canal']&&!ex.canal)ex.canal=r['canal'];
+      if(r['detalle']&&!ex.detalle)ex.detalle=r['detalle'];
+      if(r['sub detalle']&&!ex.sub_detalle)ex.sub_detalle=r['sub detalle'];
       n++;
     } else {
       const d=(r['distrito']||'').toUpperCase();
-      ST.pedidos.push(mkP({numero:num,canal:r['canal']||'',cliente:r['cliente']||'',
-        tel:r['telefono']||'',distrito:d,depto:(r['departamento']||'LIMA').toUpperCase(),
-        dir:r['dirección']||r['direccion']||'',precio:parseFloat(r['monto']||0),
-        estado:r['estado']||'',fuente:'BASE'}));n++;
+      ST.pedidos.push(mkP({numero:num,
+        canal:(r['fuerza de venta']||r['canal']||'').toUpperCase(),
+        cliente:r['cliente']||'',
+        tel:r['telefono']||r['teléfono']||'',
+        distrito:d,depto:(r['departamento']||'LIMA').toUpperCase(),
+        dir:r['dirección']||r['direccion']||'',precio:parseFloat(r['costo']||r['monto']||0),
+        estado:(r['estado']||'').toUpperCase(),
+        placa:(r['placa']||'').toUpperCase(),
+        detalle:r['detalle']||'',
+        sub_detalle:r['sub detalle']||'',
+        fuente:'BASE'}));n++;
     }
   });
   ST.cargados.base=n;
@@ -1165,13 +1244,22 @@ function pTrans(rows){
     const p=ST.pedidos.find(x=>x.numero===num);
     if(p){
       if(r['unidad']&&p.unidad==='SIN ASIGNAR'){p.unidad=r['unidad'].toUpperCase();}
+      if(r['placa']&&p.placa==='SIN ASIGNAR'){p.placa=(r['placa']||'').toUpperCase();}
       if(r['vuelta']){const v=(r['vuelta']||'').toUpperCase();p.vuelta=v.includes('2')?'2DA VUELTA':'1ERA VUELTA';}
-      if(r['estado transito'])p.trans_estado=r['estado transito'];
+      const est=(r['estado']||r['estado transito']||'').toUpperCase();
+      if(est)p.trans_estado=est;
+      const det=r['detalle']||r['sub detalle']||'';
+      if(det&&!p.detalle)p.detalle=det;
       n++;
     } else if(num){
       const d=(r['distrito']||'').toUpperCase();
-      const p2=mkP({numero:num,canal:r['canal']||'',cliente:r['cliente']||'',
-        tel:'',distrito:d,depto:'LIMA',dir:r['dirección']||'',fuente:'TRANSITO'});
+      const est=(r['estado']||'').toUpperCase();
+      const p2=mkP({numero:num,canal:r['fuerza de venta']||r['canal']||'',
+        cliente:r['cliente']||'',tel:r['telefono']||r['teléfono']||'',
+        distrito:d,depto:'LIMA',dir:r['dirección']||r['direccion']||'',
+        estado:est,fuente:'TRANSITO',
+        placa:(r['placa']||'').toUpperCase(),
+        detalle:r['detalle']||r['sub detalle']||''});
       if(r['unidad'])p2.unidad=r['unidad'].toUpperCase();
       if(r['vuelta']){const v=(r['vuelta']||'').toUpperCase();p2.vuelta=v.includes('2')?'2DA VUELTA':'1ERA VUELTA';}
       ST.pedidos.push(p2);n++;
