@@ -311,8 +311,8 @@ tbody td:first-child{padding-left:14px}
 
 <!-- ══ NAV ════════════════════════════════════════════════ -->
 <nav class="nav" id="main-nav">
-  <button class="nav-btn active" onclick="showTab('flota',this)">🚛 Flota del Día</button>
-  <button class="nav-btn" onclick="showTab('import',this)">📥 Carga de Datos</button>
+  <button class="nav-btn" onclick="showTab('flota',this)">🚛 Flota del Día</button>
+  <button class="nav-btn active" onclick="showTab('import',this)">📥 Carga de Datos</button>
   <button class="nav-btn" onclick="showTab('motor',this)">⚙️ Motor de Ruteo</button>
   <button class="nav-btn" onclick="showTab('rutas',this)">🗺️ Hojas de Ruta</button>
   <button class="nav-btn" onclick="showTab('provincias',this)">🌎 Provincias</button>
@@ -325,7 +325,7 @@ tbody td:first-child{padding-left:14px}
 <!-- ══════════════════════════════════════════════════════ -->
 <!-- PESTAÑA 1: FLOTA DEL DÍA                             -->
 <!-- ══════════════════════════════════════════════════════ -->
-<section class="sec active" id="sec-flota">
+<section class="sec" id="sec-flota">
   <div class="ph">
     <h1>Configuración de Flota — Corte de 8 PM</h1>
     <p>Choferes y motorizados rotan entre unidades. Un motorizado con brevete A-IIa puede asignarse a un camión. Agregue o elimine unidades según el día.</p>
@@ -365,10 +365,16 @@ tbody td:first-child{padding-left:14px}
 <!-- ══════════════════════════════════════════════════════ -->
 <!-- PESTAÑA 2: CARGA DE DATOS (6 reportes)               -->
 <!-- ══════════════════════════════════════════════════════ -->
-<section class="sec" id="sec-import">
+<section class="sec active" id="sec-import">
   <div class="ph">
     <h1>Carga de Datos — 6 Reportes</h1>
     <p>Cada área sube o pega su reporte antes de las 8 PM. Los datos se integran automáticamente al Motor de Ruteo.</p>
+  </div>
+
+  <!-- Botón maestro -->
+  <div style="margin-bottom:14px;text-align:center">
+    <button class="btn btn-p" style="font-size:15px;padding:10px 32px;border-radius:10px" onclick="procesarTodo()">⚡ PROCESAR TODO</button>
+    <div id="msg-global" style="margin-top:8px;font-size:13px;color:var(--ink-soft)"></div>
   </div>
 
   <div class="import-grid">
@@ -389,9 +395,8 @@ tbody td:first-child{padding-left:14px}
           <div class="iz-icon">📋</div><div class="iz-title">Soltar archivo ESPE aquí</div>
           <div class="iz-sub">CSV o TSV — Estado, Número, Distrito, Teléfono, Monto</div>
         </div>
-        <input type="file" id="fi-espe" style="display:none" accept=".csv,.tsv,.txt" onchange="lf(event,'espe')">
+        <input type="file" id="fi-espe" style="display:none" accept=".xlsx,.xls,.csv,.tsv,.txt" onchange="lf(event,'espe')">
         <textarea class="paste" id="pa-espe" rows="3" placeholder="O pegar datos copiados desde Excel (TSV)..."></textarea>
-        <button class="btn btn-p btn-sm" style="margin-top:6px" onclick="pp('espe')">⚡ Procesar</button>
         <div id="msg-espe"></div>
       </div>
     </div>
@@ -412,9 +417,8 @@ tbody td:first-child{padding-left:14px}
           <div class="iz-icon">📦</div><div class="iz-title">Soltar archivo RPTR aquí</div>
           <div class="iz-sub">CSV o TSV — Número, Código SKU, Unidades, Placa, Chofer</div>
         </div>
-        <input type="file" id="fi-rptr" style="display:none" accept=".csv,.tsv,.txt" onchange="lf(event,'rptr')">
+        <input type="file" id="fi-rptr" style="display:none" accept=".xlsx,.xls,.csv,.tsv,.txt" onchange="lf(event,'rptr')">
         <textarea class="paste" id="pa-rptr" rows="3" placeholder="O pegar datos TSV del RPTR..."></textarea>
-        <button class="btn btn-p btn-sm" style="margin-top:6px" onclick="pp('rptr')">⚡ Procesar</button>
         <div id="msg-rptr"></div>
       </div>
     </div>
@@ -435,9 +439,8 @@ tbody td:first-child{padding-left:14px}
           <div class="iz-icon">📄</div><div class="iz-title">Soltar Base Diaria aquí</div>
           <div class="iz-sub">CSV o TSV — Pedido, Estado, Fecha, Canal, Monto</div>
         </div>
-        <input type="file" id="fi-base" style="display:none" accept=".csv,.tsv,.txt" onchange="lf(event,'base')">
+        <input type="file" id="fi-base" style="display:none" accept=".xlsx,.xls,.csv,.tsv,.txt" onchange="lf(event,'base')">
         <textarea class="paste" id="pa-base" rows="3" placeholder="O pegar datos de la Base Diaria..."></textarea>
-        <button class="btn btn-p btn-sm" style="margin-top:6px" onclick="pp('base')">⚡ Procesar</button>
         <div id="msg-base"></div>
       </div>
     </div>
@@ -458,9 +461,8 @@ tbody td:first-child{padding-left:14px}
           <div class="iz-icon">📞</div><div class="iz-title">Soltar Gestión de Confirmaciones aquí</div>
           <div class="iz-sub">CSV o TSV — Pedido, Estado, Detalle horario, Distrito, Teléfono</div>
         </div>
-        <input type="file" id="fi-conf" style="display:none" accept=".csv,.tsv,.txt" onchange="lf(event,'conf')">
+        <input type="file" id="fi-conf" style="display:none" accept=".xlsx,.xls,.csv,.tsv,.txt" onchange="lf(event,'conf')">
         <textarea class="paste" id="pa-conf" rows="3" placeholder="O pegar datos de Confirmaciones..."></textarea>
-        <button class="btn btn-p btn-sm" style="margin-top:6px" onclick="pp('conf')">⚡ Procesar</button>
         <div id="msg-conf"></div>
       </div>
     </div>
@@ -481,9 +483,8 @@ tbody td:first-child{padding-left:14px}
           <div class="iz-icon">🚚</div><div class="iz-title">Soltar Reporte de Tránsito aquí</div>
           <div class="iz-sub">CSV o TSV — Pedido, Unidad, Vuelta, Estado, Observación</div>
         </div>
-        <input type="file" id="fi-trans" style="display:none" accept=".csv,.tsv,.txt" onchange="lf(event,'trans')">
+        <input type="file" id="fi-trans" style="display:none" accept=".xlsx,.xls,.csv,.tsv,.txt" onchange="lf(event,'trans')">
         <textarea class="paste" id="pa-trans" rows="3" placeholder="O pegar datos del Reporte de Tránsito..."></textarea>
-        <button class="btn btn-p btn-sm" style="margin-top:6px" onclick="pp('trans')">⚡ Procesar</button>
         <div id="msg-trans"></div>
       </div>
     </div>
@@ -504,49 +505,9 @@ tbody td:first-child{padding-left:14px}
           <div class="iz-icon">🐝</div><div class="iz-title">Soltar Reporte Mybees aquí</div>
           <div class="iz-sub">CSV o TSV — Pedido, Canal Mybees, Cliente, Distrito, Estado</div>
         </div>
-        <input type="file" id="fi-myb" style="display:none" accept=".csv,.tsv,.txt" onchange="lf(event,'myb')">
+        <input type="file" id="fi-myb" style="display:none" accept=".xlsx,.xls,.csv,.tsv,.txt" onchange="lf(event,'myb')">
         <textarea class="paste" id="pa-myb" rows="3" placeholder="O pegar datos del Reporte Mybees..."></textarea>
-        <button class="btn btn-p btn-sm" style="margin-top:6px" onclick="pp('myb')">⚡ Procesar</button>
         <div id="msg-myb"></div>
-      </div>
-    </div>
-
-    <!-- Manual -->
-    <div class="card">
-      <div class="ch" style="background:#F8FAFC;border-left:4px solid #475569;border-radius:8px 8px 0 0">
-        <div class="ct">✏️ Agregar Pedido Manual</div>
-      </div>
-      <div class="cb">
-        <div style="display:grid;gap:8px">
-          <div class="frow">
-            <div class="field"><label>N° Pedido *</label><input id="mn" placeholder="Número pedido"></div>
-            <div class="field"><label>Canal</label><input id="mc" placeholder="FNB/GSD/B2B/Mybees"></div>
-          </div>
-          <div class="field"><label>Cliente *</label><input id="mcl" placeholder="Nombre completo"></div>
-          <div class="frow">
-            <div class="field"><label>Teléfono</label><input id="mt" placeholder="9XXXXXXXX"></div>
-            <div class="field"><label>Distrito *</label><select id="mdi"><option value="">Seleccionar...</option></select></div>
-          </div>
-          <div class="field"><label>Dirección</label><input id="mdr" placeholder="Av./Jr. + Número"></div>
-          <div class="frow">
-            <div class="field"><label>SKU</label><input id="ms" placeholder="Código SKU" oninput="lsku()"></div>
-            <div class="field"><label>Und.</label><input id="mu" type="number" value="1" min="1"></div>
-          </div>
-          <div class="field"><label>Producto</label><input id="mp" placeholder="Auto con SKU"></div>
-          <div class="frow">
-            <div class="field"><label>Peso kg</label><input id="mpk" type="number" step="0.1"></div>
-            <div class="field"><label>S/.</label><input id="mpr" type="number" step="0.01"></div>
-          </div>
-          <div class="field"><label>Ventana horaria</label>
-            <select id="mv">
-              <option>MAÑANA (hasta 12M)</option><option>MAÑANA (hasta 1PM)</option>
-              <option selected>TARDE (hasta 2PM)</option><option>TARDE (hasta 3PM)</option>
-              <option>TARDE (desde 1PM)</option><option>TARDE (desde 2PM)</option>
-              <option>POR COORDENADAS</option><option>LLAMAR 30min antes</option>
-            </select>
-          </div>
-          <button class="btn btn-p" onclick="addM()">➕ Agregar al Motor</button>
-        </div>
       </div>
     </div>
 
@@ -1117,7 +1078,23 @@ function lfo(f,t){
     reader.readAsText(f,'UTF-8');
   }
 }
-function pp(t){const v=document.getElementById('pa-'+t).value;if(!v.trim()){smsg(t,'error','Sin datos');return;}csv(v,t);document.getElementById('pa-'+t).value='';}
+function pp(t){const v=document.getElementById('pa-'+t).value;if(!v.trim()){return false;}csv(v,t);document.getElementById('pa-'+t).value='';return true;}
+function procesarTodo(){
+  const tipos=['espe','rptr','base','conf','trans','myb'];
+  let procesados=0,omitidos=0;
+  tipos.forEach(t=>{
+    const v=document.getElementById('pa-'+t).value;
+    if(v.trim()){csv(v,t);document.getElementById('pa-'+t).value='';procesados++;}
+    else omitidos++;
+  });
+  const el=document.getElementById('msg-global');
+  if(procesados>0){
+    el.innerHTML='<span style="color:#16A34A;font-weight:600">✅ '+procesados+' reporte'+(procesados>1?'s':'')+' procesado'+(procesados>1?'s':'')+' correctamente.'+(omitidos>0?' ('+omitidos+' sin datos — se omitieron)':'')+'</span>';
+  } else {
+    el.innerHTML='<span style="color:#DC2626">⚠️ No hay datos pegados en ningún reporte. Arrastra o pega primero los archivos.</span>';
+  }
+  setTimeout(()=>{el.innerHTML='';},5000);
+}
 
 function csv(txt,t){
   const lines=txt.trim().split('\n').filter(l=>l.trim());
