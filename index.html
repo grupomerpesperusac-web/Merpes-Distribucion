@@ -577,10 +577,11 @@ tbody td:first-child{padding-left:14px}
 <section class="sec" id="sec-provincias">
   <div class="ph"><h1>Pedidos a Provincia</h1><p>Dpto. ≠ Lima / Callao → Enotria · Toscano · Meta Logistic (5–10 días hábiles)</p></div>
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
-    <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800" id="pv-cnt">0</div><div style="font-size:12px;color:var(--ink-soft)">Pedidos</div></div>
+    <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800" id="pv-cnt">0</div><div style="font-size:12px;color:var(--ink-soft)">Pedidos pendientes</div></div>
     <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800" id="pv-kg">0 kg</div><div style="font-size:12px;color:var(--ink-soft)">Peso total</div></div>
     <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800" id="pv-sol">S/ 0</div><div style="font-size:12px;color:var(--ink-soft)">Monto total</div></div>
   </div>
+  <div id="pv-operadores" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px"></div>
   <div class="card"><div class="tb-wrap"><table>
     <thead><tr><th>Pedido</th><th>Canal</th><th>Cliente</th><th>Tel.</th><th>Depto.</th><th>Distrito</th><th>Dirección</th><th>Producto</th><th>Kg</th><th>S/.</th>
     <th style="background:#F3E8FF;color:#9333EA">Operador ✏️</th><th style="background:#DCFCE7;color:#166534">Estado ✏️</th></tr></thead>
@@ -624,6 +625,29 @@ tbody td:first-child{padding-left:14px}
     <th>#</th><th>Pedido</th><th>Cliente</th><th>Distrito</th><th>Canal</th>
     <th>Unidad</th><th>Motivo</th><th>Reprog.</th><th>Obs.</th><th>¿Rescatado?</th><th>×</th>
   </tr></thead><tbody id="rb"></tbody></table></div></div>
+  <!-- Rechazos detectados automáticamente de ESPE -->
+  <div class="card" style="margin-top:14px">
+    <div class="ch" style="background:#FEF2F2;border-left:4px solid #DC2626">
+      <span class="ct" style="color:#991B1B">📋 Rechazos detectados en ESPE</span>
+      <span style="font-size:12px;color:#991B1B;font-weight:700"><span id="r-espe-cnt">0</span> pedidos</span>
+    </div>
+    <div class="cb" style="padding:12px">
+      <div class="tb-wrap">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="background:#FEF2F2">
+            <th style="padding:6px 8px;text-align:left;color:#991B1B;font-size:11px">#</th>
+            <th style="padding:6px 8px;text-align:left;color:#991B1B;font-size:11px">Pedido</th>
+            <th style="padding:6px 8px;text-align:left;color:#991B1B;font-size:11px">Cliente</th>
+            <th style="padding:6px 8px;text-align:left;color:#991B1B;font-size:11px">Distrito</th>
+            <th style="padding:6px 8px;text-align:left;color:#991B1B;font-size:11px">Fuerza Venta</th>
+            <th style="padding:6px 8px;text-align:left;color:#991B1B;font-size:11px">Estado</th>
+            <th style="padding:6px 8px;text-align:right;color:#991B1B;font-size:11px">Monto</th>
+          </tr></thead>
+          <tbody id="rb-espe"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 </section>
 
 <!-- ══════════════════════════════════════════════════════ -->
@@ -660,7 +684,7 @@ tbody td:first-child{padding-left:14px}
       <span id="kpi-tr-total" style="font-size:12px;color:var(--ink-soft)"></span>
     </div>
     <div class="cb"><div class="tb-wrap"><table id="kpi-tr-tbl">
-      <thead><tr><th>Transporte</th><th>Placa / ID</th><th>Cnt. Productos</th><th>Cnt. Pedidos</th><th>Entregados</th><th>Rechazos</th><th>Efectividad</th><th>Suma de Costo</th></tr></thead>
+      <thead><tr><th>Placa / ID</th><th>Tipo</th><th>Cnt. Productos</th><th>Cnt. Pedidos</th><th>Entregados</th><th>Rechazos</th><th>Efectividad</th><th>Suma de Costo</th></tr></thead>
       <tbody id="kpi-tr-body"></tbody>
     </table></div></div>
   </div>
@@ -681,7 +705,7 @@ tbody td:first-child{padding-left:14px}
       <span class="ct" style="color:#7C3AED">📍 Por Zona — Top 15 Distritos</span>
     </div>
     <div class="cb"><div class="tb-wrap"><table>
-      <thead><tr><th>Distrito</th><th>Total Pedidos</th><th>Entregados</th><th>Rechazos</th><th>En Tránsito</th><th>Efectividad</th><th>Monto Total S/</th></tr></thead>
+      <thead><tr><th>Distrito</th><th>Total Pedidos</th><th style="min-width:120px">Volumen</th><th>Entregados</th><th>Rechazos</th><th>En Tránsito</th><th>Efectividad</th><th>Monto Total S/</th></tr></thead>
       <tbody id="kpi-zona-body"></tbody>
     </table></div></div>
   </div>
@@ -1214,6 +1238,7 @@ function pE(rows){
     // Sub-estado y fuerza de venta
     const subEst=String(r['sub estado']||'').trim();
     const canal=String(r['p. emis']||r['canal']||r['entidad']||'').trim();
+    const fuerza_venta=String(r['fuerza']||r['fuerza de venta']||r['fuerza_de_venta']||'').toUpperCase().trim();
     const cliente=String(r['razon social']||r['cliente']||'').trim();
     const tel=String(r['telefono']||r['teléfono']||'').trim();
     const distrito=String(r['distrito']||'').toUpperCase().trim();
@@ -1224,7 +1249,7 @@ function pE(rows){
     // Registrar siempre en espe_todos para KPI
     if(!ST.espe_todos) ST.espe_todos=[];
     ST.espe_todos.push({numero:num,canal,cliente,tel,distrito,dir,monto,estado:est,
-                        sub_estado:subEst,f_venta:fVenta,f_estado:fEstado});
+                        sub_estado:subEst,f_venta:fVenta,f_estado:fEstado,fuerza_venta});
     // Solo agregar al motor de ruteo si es estado activo y no duplicado
     if(ESTADOS_ACTIVOS.includes(est)&&!ST.pedidos.some(p=>p.numero===num)){
       ST.pedidos.push(mkP({numero:num,canal,cliente,tel,
@@ -1254,10 +1279,13 @@ function pR(rows){
       if(!ex.producto&&prod)ex.producto=prod;
       if(pd&&!ex.peso){ex.peso=pd.p*und;ex.m3=pd.m*und;}
       if(!ex.placa)ex.placa=r['placa']||'';
+      if(!ex.fuerza_venta){ex.fuerza_venta=(r['fuerza']||r['fuerza de venta']||r['fuerza_de_venta']||'').toUpperCase();}
       n++;
     } else {
       const d=(r['distrito']||'').toUpperCase();const dp=(r['departamento']||'LIMA').toUpperCase();
-      ST.pedidos.push(mkP({numero:num,canal:r['p. emis']||'',cliente:r['cliente']||'',
+      ST.pedidos.push(mkP({numero:num,canal:r['p. emis']||'',
+        fuerza_venta:(r['fuerza']||r['fuerza de venta']||r['fuerza_de_venta']||'').toUpperCase(),
+        cliente:r['cliente']||'',
         tel:r['telefono']||'',distrito:d,depto:dp,
         dir:r['dirección entrega']||r['direccion entrega']||r['dirección cliente']||'',
         producto:prod,sku,und,peso:pd?pd.p*und:0,m3:pd?pd.m*und:0,
@@ -1770,11 +1798,31 @@ function renderRutas(){
 // ══════════════════════════════════════════════
 // PROVINCIAS
 // ══════════════════════════════════════════════
+function guardarOpProv(num,op){
+  const p=ST.pedidos.find(x=>x.numero===num);
+  if(p){p.operador_prov=op;save();renderProvincias();}
+}
+function guardarEstProv(num,est){
+  const p=ST.pedidos.find(x=>x.numero===num);
+  if(p){p.estado_prov=est;save();}
+}
 function renderProvincias(){
-  const pv=ST.pedidos.filter(p=>p.zona==='PROVINCIA');
-  document.getElementById('pv-cnt').textContent=pv.length;
+  const ENTREGADOS=['ENTREGADO'];
+  const pvTotal=ST.pedidos.filter(p=>p.zona==='PROVINCIA');
+  const pv=pvTotal.filter(p=>!ENTREGADOS.includes((p.estado||'').toUpperCase())&&!ENTREGADOS.includes((p.estado_prov||'').toUpperCase()));
+  document.getElementById('pv-cnt').textContent=pv.length+' pendientes de '+pvTotal.length+' total';
   document.getElementById('pv-kg').textContent=pv.reduce((s,p)=>s+(+p.peso||0),0).toFixed(1)+' kg';
   document.getElementById('pv-sol').textContent='S/ '+pv.reduce((s,p)=>s+(+p.precio||0),0).toFixed(0);
+  // Breakdown por operador
+  const byOp={Enotria:0,Toscano:0,'Meta Logistic':0,'Sin asignar':0};
+  pv.forEach(p=>{const op=p.operador_prov||'Sin asignar';if(byOp[op]!==undefined)byOp[op]++;else byOp['Sin asignar']++;});
+  const opColors={Enotria:'#1A56E8',Toscano:'#16A34A','Meta Logistic':'#9333EA','Sin asignar':'#6B7280'};
+  const pvOpEl=document.getElementById('pv-operadores');
+  if(pvOpEl)pvOpEl.innerHTML=Object.entries(byOp).map(([op,cnt])=>`
+    <div style="padding:10px 16px;background:${opColors[op]||'#6B7280'}15;border:1.5px solid ${opColors[op]||'#6B7280'}40;border-radius:8px;min-width:120px;text-align:center">
+      <div style="font-size:20px;font-weight:800;color:${opColors[op]||'#6B7280'}">${cnt}</div>
+      <div style="font-size:11px;font-weight:700;color:${opColors[op]||'#6B7280'}">${op}</div>
+    </div>`).join('');
   document.getElementById('pv-body').innerHTML=pv.map(p=>`<tr>
     <td style="font-family:monospace;font-size:11px;font-weight:700">${p.numero}</td>
     <td style="font-size:11px">${p.canal||'—'}</td><td>${p.cliente||'—'}</td>
@@ -1785,10 +1833,20 @@ function renderProvincias(){
     <td style="font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.producto||'—'}</td>
     <td style="text-align:right;font-family:monospace">${(+p.peso||0).toFixed(1)}</td>
     <td style="text-align:right;font-family:monospace">${(+p.precio||0).toFixed(0)}</td>
-    <td><select style="font-size:11.5px;padding:3px 6px;border:1.5px solid #DDD8FE;border-radius:4px;background:#F5F3FF;color:#6D28D9;font-weight:600">
-      <option>Enotria</option><option>Toscano</option><option>Meta Logistic</option></select></td>
-    <td><select style="font-size:11.5px;padding:3px 6px;border:1.5px solid #BBF7D0;border-radius:4px;background:#F0FDF4;color:#166534;font-weight:600">
-      <option>Pendiente</option><option>Coordinado</option><option>En tránsito</option><option>Entregado</option></select></td>
+    <td><select style="font-size:11.5px;padding:3px 6px;border:1.5px solid #DDD8FE;border-radius:4px;background:#F5F3FF;color:#6D28D9;font-weight:600"
+      onchange="guardarOpProv('${p.numero}',this.value)">
+      <option ${!p.operador_prov||p.operador_prov==='Sin asignar'?'selected':''}>Sin asignar</option>
+      <option ${p.operador_prov==='Enotria'?'selected':''}>Enotria</option>
+      <option ${p.operador_prov==='Toscano'?'selected':''}>Toscano</option>
+      <option ${p.operador_prov==='Meta Logistic'?'selected':''}>Meta Logistic</option>
+    </select></td>
+    <td><select style="font-size:11.5px;padding:3px 6px;border:1.5px solid #BBF7D0;border-radius:4px;background:#F0FDF4;color:#166534;font-weight:600"
+      onchange="guardarEstProv('${p.numero}',this.value)">
+      <option ${!p.estado_prov||p.estado_prov==='Pendiente'?'selected':''}>Pendiente</option>
+      <option ${p.estado_prov==='Coordinado'?'selected':''}>Coordinado</option>
+      <option ${p.estado_prov==='En tránsito'?'selected':''}>En tránsito</option>
+      <option ${p.estado_prov==='Entregado'?'selected':''}>Entregado</option>
+    </select></td>
   </tr>`).join('');
 }
 
@@ -1834,6 +1892,24 @@ function renderRechazos(){
     </select></td>
     <td><button class="btn btn-d btn-sm" onclick="ST.rechazos.splice(${i},1);save();renderRechazos()">🗑</button></td>
   </tr>`).join('');
+  // ── Rechazos auto-detectados de ESPE ──
+  const RECHAZO_ESTADOS=['RECHAZADO','RECHAZOTEL','NO_CONTACTADO'];
+  const rechEspe=(ST.espe_todos||[]).filter(e=>RECHAZO_ESTADOS.includes(e.estado));
+  const containerEspe=document.getElementById('rb-espe');
+  if(containerEspe){
+    containerEspe.innerHTML=rechEspe.length===0
+      ?'<tr><td colspan="7" style="text-align:center;color:var(--ink-soft);padding:16px">Sin rechazos detectados en ESPE</td></tr>'
+      :rechEspe.map((e,i)=>`<tr>
+        <td style="padding:6px 8px">${i+1}</td>
+        <td style="font-family:monospace;font-size:11px;font-weight:700;padding:6px 8px">${e.numero||'—'}</td>
+        <td style="padding:6px 8px">${e.cliente||'—'}</td>
+        <td style="padding:6px 8px">${e.distrito||'—'}</td>
+        <td style="font-weight:600;color:#6D28D9;padding:6px 8px">${e.fuerza_venta||e.canal||'—'}</td>
+        <td style="padding:6px 8px"><span style="background:#FEE2E2;color:#DC2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700">${e.estado}</span></td>
+        <td style="text-align:right;font-family:monospace;padding:6px 8px">${sMon(+e.monto||0)}</td>
+      </tr>`).join('');
+    document.getElementById('r-espe-cnt').textContent=rechEspe.length;
+  }
 }
 function expR(){
   const h=['#','Pedido','Cliente','Distrito','Canal','Unidad','Motivo','Reprogramar','Obs','Rescatado'];
@@ -1878,10 +1954,10 @@ function kpiData(){
 
   const efectividad=total>0?((totEnt/(totEnt+totRec))*100||0):0;
 
-  // Por Fuerza de Venta (canal / p. emis)
+  // Por Fuerza de Venta (campo fuerza_venta del RPTR, fallback a canal)
   const byFV={};
   all.forEach(e=>{
-    const fv=e.canal||'Sin Canal';
+    const fv=e.fuerza_venta||e.canal||'Sin Fuerza de Venta';
     if(!byFV[fv])byFV[fv]={ent:0,mEnt:0,rec:0,mRec:0,trans:0,mTrans:0,total:0,mTotal:0};
     const d=byFV[fv];
     d.total++;d.mTotal+=(+e.monto||0);
@@ -1901,10 +1977,12 @@ function kpiData(){
   });
 
   // Por Transporte (desde ST.pedidos que tienen campo 'flota')
+  const normPlaca=p=>{let pl=p||'Sin Asignar';if(pl.toUpperCase()==='ULICES'||pl.toUpperCase()==='ULISES'){pl='ULISES (TÉCNICO)';}return pl;};
   const byTr={};
   ped.forEach(p=>{
-    const placa=p.flota||p.unidad||'Sin Asignar';
-    if(!byTr[placa])byTr[placa]={prods:0,peds:0,ent:0,rec:0,costo:0};
+    const placa=normPlaca(p.flota||p.unidad||'Sin Asignar');
+    const tipo=(p.canal==='MYBEES')?'TERCERO':'PROPIO';
+    if(!byTr[placa])byTr[placa]={prods:0,peds:0,ent:0,rec:0,costo:0,tipo};
     byTr[placa].peds++;byTr[placa].prods+=(+p.cantidad||1);
     byTr[placa].costo+=(+p.precio||0);
     if(p.estado&&ENTREGADO.includes(p.estado.toUpperCase()))byTr[placa].ent++;
@@ -1913,8 +1991,8 @@ function kpiData(){
   // Completar con tránsito data si existe
   if(ST.trans_data){
     ST.trans_data.forEach(t=>{
-      const placa=t.placa||t.unidad||t.vehiculo||'Sin Asignar';
-      if(!byTr[placa])byTr[placa]={prods:0,peds:0,ent:0,rec:0,costo:0};
+      const placa=normPlaca(t.placa||t.unidad||t.vehiculo||'Sin Asignar');
+      if(!byTr[placa])byTr[placa]={prods:0,peds:0,ent:0,rec:0,costo:0,tipo:'PROPIO'};
       byTr[placa].peds++;byTr[placa].prods+=(+t.cantidad||1);
       byTr[placa].costo+=(+t.monto||+t.costo||0);
     });
@@ -1991,9 +2069,10 @@ function renderKpi(){
       const cls=ef>=90?'#16A34A':ef>=75?'#D97706':'#64748B';
       const isCam=placa.match(/^[A-Z]{3}-?\d{3}$/i)||placa.toLowerCase().includes('cam');
       const icon=isCam?'🚛':'🏍';
+      const tipoLabel=v.tipo==='PROPIO'?'<span style="background:#DBEAFE;color:#1E40AF;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700">PROPIO</span>':'<span style="background:#F3E8FF;color:#7C3AED;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700">TERCERO</span>';
       return `<tr>
-        <td>${icon} <strong>Enotria</strong></td>
-        <td style="font-family:monospace;font-weight:700;color:#1A56E8">${placa}</td>
+        <td style="font-family:monospace;font-weight:700;color:#1A56E8">${icon} ${placa}</td>
+        <td>${tipoLabel}</td>
         <td style="text-align:center;font-weight:600">${S(v.prods)}</td>
         <td style="text-align:center;font-weight:700">${S(v.peds)}</td>
         <td style="text-align:center;font-weight:700;color:#16A34A">${S(v.ent)}</td>
@@ -2034,12 +2113,19 @@ function renderKpi(){
 
   // ── TABLA 4: TOP 15 DISTRITOS ──
   const distRows=Object.entries(d.byDist).sort((a,b)=>b[1].total-a[1].total).slice(0,15);
+  const maxDistTotal=distRows.length>0?distRows[0][1].total:1;
   document.getElementById('kpi-zona-body').innerHTML=distRows.map(([dist,v])=>{
     const ef=v.ent+v.rec>0?(v.ent/(v.ent+v.rec)*100):0;
     const cls=ef>=90?'#16A34A':ef>=75?'#D97706':'#DC2626';
+    const barPct=Math.round((v.total/maxDistTotal)*100);
     return `<tr>
       <td style="font-weight:600">${dist}</td>
       <td style="text-align:center;font-weight:700">${S(v.total)}</td>
+      <td style="min-width:120px">
+        <div style="background:#E5E7EB;border-radius:4px;height:12px;overflow:hidden">
+          <div style="background:#1A56E8;height:100%;width:${barPct}%;border-radius:4px;transition:width 0.3s"></div>
+        </div>
+      </td>
       <td style="text-align:center;color:#16A34A;font-weight:600">${S(v.ent)}</td>
       <td style="text-align:center;color:#DC2626;font-weight:600">${S(v.rec)}</td>
       <td style="text-align:center;color:#D97706;font-weight:600">${S(v.trans)}</td>
