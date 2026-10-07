@@ -718,7 +718,7 @@ const LIMA=['LIMA','CALLAO'];
 // ══════════════════════════════════════════════
 // ESTADO GLOBAL
 // ══════════════════════════════════════════════
-let ST={pedidos:[],rechazos:[],kpi:{},cargados:{espe:0,rptr:0,base:0,conf:0,trans:0,myb:0}};
+let ST={pedidos:[],rechazos:[],espe_todos:[],trans_data:[],kpi:{},cargados:{espe:0,rptr:0,base:0,conf:0,trans:0,myb:0}};
 let editIdx=null;
 let nextCid=4, nextMid=5;
 
@@ -782,7 +782,16 @@ function doLogin(rol) {
     }, 500);
   }
   syncInicial();
-  renderAll();renderIntStatus();
+  renderAll();
+  renderIntStatus();
+  // Asegurar que el badge de fecha no quede en "Cargando..."
+  try{
+    const hd=document.getElementById('hdr-date');
+    if(hd&&(hd.textContent===''||hd.textContent==='Cargando...')){
+      const ahora=new Date();
+      hd.textContent=ahora.toLocaleDateString('es-PE',{weekday:'short',day:'2-digit',month:'short',year:'numeric'});
+    }
+  }catch(e){}
 }
 
 function setSyncStatus(status, msg) {
@@ -1142,19 +1151,28 @@ function lfo(f,t){
 function pp(t){const v=document.getElementById('pa-'+t).value;if(!v.trim()){return false;}csv(v,t);document.getElementById('pa-'+t).value='';return true;}
 function procesarTodo(){
   const tipos=['espe','rptr','base','conf','trans','myb'];
-  let procesados=0,omitidos=0;
+  const el=document.getElementById('msg-global');
+
+  // Primero intentar procesar textareas (modo pegar)
+  let procesadosPaste=0;
   tipos.forEach(t=>{
     const v=document.getElementById('pa-'+t).value;
-    if(v.trim()){csv(v,t);document.getElementById('pa-'+t).value='';procesados++;}
-    else omitidos++;
+    if(v.trim()){csv(v,t);document.getElementById('pa-'+t).value='';procesadosPaste++;}
   });
-  const el=document.getElementById('msg-global');
-  if(procesados>0){
-    el.innerHTML='<span style="color:#16A34A;font-weight:600">✅ '+procesados+' reporte'+(procesados>1?'s':'')+' procesado'+(procesados>1?'s':'')+' correctamente.'+(omitidos>0?' ('+omitidos+' sin datos — se omitieron)':'')+'</span>';
+
+  // Verificar cuántos reportes ya tienen data en ST (cargados vía drag-drop o paste previo)
+  const yaEnST=tipos.filter(t=>ST.cargados[t]>0);
+
+  if(procesadosPaste>0||yaEnST.length>0){
+    const totalEnST=tipos.filter(t=>ST.cargados[t]>0);
+    const resumen=totalEnST.map(t=>t.toUpperCase()+'='+ST.cargados[t]).join(' | ');
+    el.innerHTML='<span style="color:#16A34A;font-weight:600">✅ Datos listos — '+(procesadosPaste>0?procesadosPaste+' procesado'+(procesadosPaste>1?'s':'')+' ahora; ':'')+totalEnST.length+' reportes activos: '+resumen+'</span>';
+    renderAll();
+    renderIntStatus();
   } else {
-    el.innerHTML='<span style="color:#DC2626">⚠️ No hay datos pegados en ningún reporte. Arrastra o pega primero los archivos.</span>';
+    el.innerHTML='<span style="color:#DC2626">⚠️ No hay datos cargados. Arrastra los archivos .xlsx sobre cada panel o pega el contenido copiado.</span>';
   }
-  setTimeout(()=>{el.innerHTML='';},5000);
+  setTimeout(()=>{el.innerHTML='';},7000);
 }
 
 function csv(txt,t){
@@ -1803,41 +1821,289 @@ function expR(){
 }
 
 // ══════════════════════════════════════════════
-// KPI
+// KPI — DASHBOARD AUTO-CALCULADO
 // ══════════════════════════════════════════════
-const KDEFS=[
-  {g:'Entregas',co:'#1A56E8',items:[
-    {k:'ns',l:'NS% Entregas OK',m:92,f:'%',ok:v=>v>=92,wa:v=>v>=85},
-    {k:'rech',l:'% Rechazos',m:8,f:'%',ok:v=>v<=8,wa:v=>v<=12,inv:1},
-    {k:'v1p',l:'1era vuelta %',m:70,f:'%',ok:v=>v>=70,wa:v=>v>=50},
-    {k:'rsc',l:'% Rescatados',m:85,f:'%',ok:v=>v>=85,wa:v=>v>=70},
-  ]},
-  {g:'Flota',co:'#0D9488',items:[
-    {k:'c1',l:'Uso C1 %',m:75,f:'%',ok:v=>v>=75,wa:v=>v>=50},
-    {k:'c2',l:'Uso C2 %',m:75,f:'%',ok:v=>v>=75,wa:v=>v>=50},
-    {k:'vlt',l:'Vueltas prom.',m:2,f:'',ok:v=>v>=2,wa:v=>v>=1},
-    {k:'inc',l:'Incidentes',m:0,f:'',ok:v=>v===0,wa:v=>v<=1,inv:1},
-  ]},
-];
+function S(n,dec=0){return (n||0).toLocaleString('es-PE',{minimumFractionDigits:dec,maximumFractionDigits:dec});}
+function sMon(n){return 'S/ '+S(n,0);}
+function sPct(a,b){return b>0?(a/b*100).toFixed(1)+'%':'—';}
+function semTile(v,meta,inv=false){const ok=inv?v<=meta*0.9:v>=meta;const wa=inv?v<=meta*1.1:v>=meta*0.75;return ok?'ok':wa?'warn':'danger';}
+
+// Analiza ST.espe_todos[] y ST para construir todos los KPIs
+function kpiData(){
+  const all=ST.espe_todos||[];
+  const ped=ST.pedidos||[];
+  const rech=ST.rechazos||[];
+
+  // Grupos de estado
+  const ENTREGADO=['ENTREGADO'];
+  const RECHAZO=['RECHAZADO','RECHAZOTEL','NO_CONTACTADO'];
+  const TRANSITO=['ENTRANSITO','EN TRANSITO','EN TRÁNSITO','PROGRAMADO','CONFIRMADO','APROBADO','OBSERVADO','SERV-PEND'];
+
+  const isEnt=e=>ENTREGADO.includes(e.estado);
+  const isRec=e=>RECHAZO.includes(e.estado);
+  const isTrans=e=>TRANSITO.includes(e.estado);
+
+  const totEnt=all.filter(isEnt).length;
+  const totRec=all.filter(isRec).length;
+  const totTrans=all.filter(isTrans).length;
+  const totAnu=all.filter(e=>e.estado==='ANULADO').length;
+  const total=all.length;
+
+  const mtoEnt=all.filter(isEnt).reduce((s,e)=>s+(+e.monto||0),0);
+  const mtoRec=all.filter(isRec).reduce((s,e)=>s+(+e.monto||0),0);
+  const mtoTrans=all.filter(isTrans).reduce((s,e)=>s+(+e.monto||0),0);
+  const mtoTotal=all.reduce((s,e)=>s+(+e.monto||0),0);
+
+  const efectividad=total>0?((totEnt/(totEnt+totRec))*100||0):0;
+
+  // Por Fuerza de Venta (canal / p. emis)
+  const byFV={};
+  all.forEach(e=>{
+    const fv=e.canal||'Sin Canal';
+    if(!byFV[fv])byFV[fv]={ent:0,mEnt:0,rec:0,mRec:0,trans:0,mTrans:0,total:0,mTotal:0};
+    const d=byFV[fv];
+    d.total++;d.mTotal+=(+e.monto||0);
+    if(isEnt(e)){d.ent++;d.mEnt+=(+e.monto||0);}
+    else if(isRec(e)){d.rec++;d.mRec+=(+e.monto||0);}
+    else if(isTrans(e)){d.trans++;d.mTrans+=(+e.monto||0);}
+  });
+
+  // Por Zona/Distrito
+  const byDist={};
+  all.forEach(e=>{
+    const dist=e.distrito||'Sin Distrito';
+    if(!byDist[dist])byDist[dist]={ent:0,rec:0,trans:0,total:0,monto:0};
+    const d=byDist[dist];
+    d.total++;d.monto+=(+e.monto||0);
+    if(isEnt(e))d.ent++;else if(isRec(e))d.rec++;else if(isTrans(e))d.trans++;
+  });
+
+  // Por Transporte (desde ST.pedidos que tienen campo 'flota')
+  const byTr={};
+  ped.forEach(p=>{
+    const placa=p.flota||p.unidad||'Sin Asignar';
+    if(!byTr[placa])byTr[placa]={prods:0,peds:0,ent:0,rec:0,costo:0};
+    byTr[placa].peds++;byTr[placa].prods+=(+p.cantidad||1);
+    byTr[placa].costo+=(+p.precio||0);
+    if(p.estado&&ENTREGADO.includes(p.estado.toUpperCase()))byTr[placa].ent++;
+    if(p.estado&&RECHAZO.includes(p.estado.toUpperCase()))byTr[placa].rec++;
+  });
+  // Completar con tránsito data si existe
+  if(ST.trans_data){
+    ST.trans_data.forEach(t=>{
+      const placa=t.placa||t.unidad||t.vehiculo||'Sin Asignar';
+      if(!byTr[placa])byTr[placa]={prods:0,peds:0,ent:0,rec:0,costo:0};
+      byTr[placa].peds++;byTr[placa].prods+=(+t.cantidad||1);
+      byTr[placa].costo+=(+t.monto||+t.costo||0);
+    });
+  }
+
+  return {totEnt,totRec,totTrans,totAnu,total,mtoEnt,mtoRec,mtoTrans,mtoTotal,efectividad,byFV,byDist,byTr};
+}
+
 function renderKpi(){
-  document.getElementById('kpi-cont').innerHTML=KDEFS.map(g=>`
-    <div class="card" style="margin-bottom:14px">
-      <div class="ch" style="background:${g.co}10;border-bottom:1px solid ${g.co}20">
-        <span class="ct" style="color:${g.co}">${g.g}</span></div>
-      <div class="cb"><div class="kg">
-        ${g.items.map(it=>{
-          const v=ST.kpi[it.k]??'';const n=parseFloat(v)||0;
-          const cls=v!==''?(it.ok(n)?'ok':it.wa(n)?'warn':'danger'):'';
-          return `<div class="kt ${cls}">
-            <div class="kv">${v!==''?(n.toFixed(it.f?1:0)+it.f):'—'}</div>
-            <div class="kl">${it.l}</div>
-            <div class="km" style="color:var(--ink-soft)">Meta: ${it.m}${it.f}</div>
-            <input class="ki" type="number" step="0.1" value="${v}" placeholder="Ingresar"
-              oninput="ST.kpi['${it.k}']=this.value;save();renderKpi()">
-          </div>`;
-        }).join('')}
-      </div></div>
+  const d=kpiData();
+  const hoy=new Date().toLocaleDateString('es-PE',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  document.getElementById('kpi-fecha').textContent='Actualizado: '+hoy;
+
+  // ── TILES RESUMEN EJECUTIVO ──
+  const tiles=[
+    {ico:'📦',val:S(d.total),lbl:'Total Pedidos',sub:'en ESPE',cls:''},
+    {ico:'✅',val:S(d.totEnt),lbl:'Entregados',sub:sMon(d.mtoEnt),cls:d.totEnt>0?'ok':''},
+    {ico:'🔄',val:S(d.totTrans),lbl:'En Tránsito',sub:sMon(d.mtoTrans),cls:'warn'},
+    {ico:'❌',val:S(d.totRec),lbl:'Rechazos',sub:sMon(d.mtoRec),cls:d.totRec>0?'danger':'ok'},
+    {ico:'🚫',val:S(d.totAnu),lbl:'Anulados',sub:'pedidos anulados',cls:d.totAnu>0?'warn':''},
+    {ico:'💰',val:sMon(d.mtoTotal),lbl:'Valor Total',sub:'S/ en cartera',cls:''},
+    {ico:'🎯',val:d.efectividad.toFixed(1)+'%',lbl:'Efectividad',sub:'Ent/(Ent+Rec)',cls:d.efectividad>=90?'ok':d.efectividad>=75?'warn':'danger'},
+    {ico:'🔺',val:sMon(d.mtoRec),lbl:'$ en Riesgo',sub:'valor rechazos',cls:d.mtoRec>0?'danger':'ok'},
+  ];
+  document.getElementById('kpi-tiles').innerHTML=tiles.map(t=>`
+    <div class="kt ${t.cls}" style="flex-direction:column;align-items:flex-start;gap:2px;padding:12px 14px">
+      <div style="font-size:22px;line-height:1">${t.ico}</div>
+      <div class="kv" style="font-size:20px;margin:4px 0 0">${t.val}</div>
+      <div class="kl" style="font-size:11.5px;font-weight:700">${t.lbl}</div>
+      <div style="font-size:10.5px;color:var(--ink-soft)">${t.sub}</div>
     </div>`).join('');
+
+  // ── TABLA 1: POR FUERZA DE VENTA ──
+  const fvRows=Object.entries(d.byFV).sort((a,b)=>b[1].total-a[1].total);
+  const fvTot={ent:0,mEnt:0,rec:0,mRec:0,trans:0,mTrans:0,total:0,mTotal:0};
+  fvRows.forEach(([,v])=>{fvTot.ent+=v.ent;fvTot.mEnt+=v.mEnt;fvTot.rec+=v.rec;fvTot.mRec+=v.mRec;fvTot.trans+=v.trans;fvTot.mTrans+=v.mTrans;fvTot.total+=v.total;fvTot.mTotal+=v.mTotal;});
+  document.getElementById('kpi-fv-total').textContent='Total: '+S(fvTot.total)+' pedidos · S/ '+S(fvTot.mTotal);
+  document.getElementById('kpi-fv-body').innerHTML=fvRows.map(([fv,v])=>{
+    const ef=v.ent+v.rec>0?(v.ent/(v.ent+v.rec)*100):0;
+    const cls=ef>=90?'#16A34A':ef>=75?'#D97706':'#DC2626';
+    return `<tr>
+      <td style="font-weight:600">${fv}</td>
+      <td style="text-align:center;font-weight:700;color:#16A34A">${S(v.ent)}</td>
+      <td style="text-align:right;font-family:monospace">${sMon(v.mEnt)}</td>
+      <td style="text-align:center;font-weight:700;color:#DC2626">${S(v.rec)}</td>
+      <td style="text-align:right;font-family:monospace;color:#DC2626">${sMon(v.mRec)}</td>
+      <td style="text-align:center;color:#D97706;font-weight:600">${S(v.trans)}</td>
+      <td style="text-align:center;font-weight:700">${S(v.total)}</td>
+      <td style="text-align:right;font-family:monospace;font-weight:700">${sMon(v.mTotal)}</td>
+      <td style="text-align:center"><span style="background:${cls}18;color:${cls};padding:2px 8px;border-radius:10px;font-weight:700;font-size:12px">${(v.ent+v.rec>0?ef.toFixed(1):0)+'%'}</span></td>
+    </tr>`;
+  }).join('')+`<tr style="background:#F8FAFC;font-weight:700;border-top:2px solid #E2E8F0">
+    <td>TOTAL</td>
+    <td style="text-align:center;color:#16A34A">${S(fvTot.ent)}</td>
+    <td style="text-align:right;font-family:monospace">${sMon(fvTot.mEnt)}</td>
+    <td style="text-align:center;color:#DC2626">${S(fvTot.rec)}</td>
+    <td style="text-align:right;font-family:monospace;color:#DC2626">${sMon(fvTot.mRec)}</td>
+    <td style="text-align:center;color:#D97706">${S(fvTot.trans)}</td>
+    <td style="text-align:center">${S(fvTot.total)}</td>
+    <td style="text-align:right;font-family:monospace">${sMon(fvTot.mTotal)}</td>
+    <td style="text-align:center">${(fvTot.ent+fvTot.rec>0?(fvTot.ent/(fvTot.ent+fvTot.rec)*100).toFixed(1):0)+'%'}</td>
+  </tr>`;
+
+  // ── TABLA 2: POR TRANSPORTE / PLACA ──
+  const trRows=Object.entries(d.byTr).sort((a,b)=>b[1].peds-a[1].peds);
+  document.getElementById('kpi-tr-total').textContent=trRows.length+' unidades activas';
+  if(trRows.length===0){
+    document.getElementById('kpi-tr-body').innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--ink-soft);padding:20px">Carga el Reporte Tránsito para ver datos por unidad</td></tr>';
+  } else {
+    const trTot={prods:0,peds:0,ent:0,rec:0,costo:0};
+    trRows.forEach(([,v])=>{trTot.prods+=v.prods;trTot.peds+=v.peds;trTot.ent+=v.ent;trTot.rec+=v.rec;trTot.costo+=v.costo;});
+    document.getElementById('kpi-tr-body').innerHTML=trRows.map(([placa,v])=>{
+      const ef=v.ent+v.rec>0?(v.ent/(v.ent+v.rec)*100):0;
+      const cls=ef>=90?'#16A34A':ef>=75?'#D97706':'#64748B';
+      const isCam=placa.match(/^[A-Z]{3}-?\d{3}$/i)||placa.toLowerCase().includes('cam');
+      const icon=isCam?'🚛':'🏍';
+      return `<tr>
+        <td>${icon} <strong>Enotria</strong></td>
+        <td style="font-family:monospace;font-weight:700;color:#1A56E8">${placa}</td>
+        <td style="text-align:center;font-weight:600">${S(v.prods)}</td>
+        <td style="text-align:center;font-weight:700">${S(v.peds)}</td>
+        <td style="text-align:center;font-weight:700;color:#16A34A">${S(v.ent)}</td>
+        <td style="text-align:center;font-weight:700;color:#DC2626">${S(v.rec)}</td>
+        <td style="text-align:center"><span style="background:${cls}18;color:${cls};padding:2px 8px;border-radius:10px;font-weight:700;font-size:12px">${ef.toFixed(1)+'%'}</span></td>
+        <td style="text-align:right;font-family:monospace;font-weight:700">${sMon(v.costo)}</td>
+      </tr>`;
+    }).join('')+`<tr style="background:#F8FAFC;font-weight:700;border-top:2px solid #E2E8F0">
+      <td colspan="2">TOTAL</td>
+      <td style="text-align:center">${S(trTot.prods)}</td>
+      <td style="text-align:center">${S(trTot.peds)}</td>
+      <td style="text-align:center;color:#16A34A">${S(trTot.ent)}</td>
+      <td style="text-align:center;color:#DC2626">${S(trTot.rec)}</td>
+      <td></td>
+      <td style="text-align:right;font-family:monospace">${sMon(trTot.costo)}</td>
+    </tr>`;
+  }
+
+  // ── TABLA 3: EN TRÁNSITO POR FUERZA DE VENTA ──
+  const transRows=fvRows.filter(([,v])=>v.trans>0).sort((a,b)=>b[1].trans-a[1].trans);
+  const transTot={trans:0,mTrans:0};
+  transRows.forEach(([,v])=>{transTot.trans+=v.trans;transTot.mTrans+=v.mTrans;});
+  document.getElementById('kpi-trans-total').textContent='Total en tránsito: '+S(transTot.trans)+' pedidos · '+sMon(transTot.mTrans);
+  if(transRows.length===0){
+    document.getElementById('kpi-trans-body').innerHTML='<tr><td colspan="3" style="text-align:center;color:var(--ink-soft);padding:20px">Sin pedidos en tránsito actualmente</td></tr>';
+  } else {
+    document.getElementById('kpi-trans-body').innerHTML=transRows.map(([fv,v])=>`
+      <tr>
+        <td style="font-weight:600">${fv}</td>
+        <td style="text-align:center;font-weight:700;color:#D97706">${S(v.trans)}</td>
+        <td style="text-align:right;font-family:monospace;font-weight:700;color:#D97706">${sMon(v.mTrans)}</td>
+      </tr>`).join('')+`<tr style="background:#FFF7ED;font-weight:700;border-top:2px solid #FED7AA">
+        <td>TOTAL EN TRÁNSITO</td>
+        <td style="text-align:center;color:#D97706">${S(transTot.trans)}</td>
+        <td style="text-align:right;font-family:monospace;color:#D97706">${sMon(transTot.mTrans)}</td>
+      </tr>`;
+  }
+
+  // ── TABLA 4: TOP 15 DISTRITOS ──
+  const distRows=Object.entries(d.byDist).sort((a,b)=>b[1].total-a[1].total).slice(0,15);
+  document.getElementById('kpi-zona-body').innerHTML=distRows.map(([dist,v])=>{
+    const ef=v.ent+v.rec>0?(v.ent/(v.ent+v.rec)*100):0;
+    const cls=ef>=90?'#16A34A':ef>=75?'#D97706':'#DC2626';
+    return `<tr>
+      <td style="font-weight:600">${dist}</td>
+      <td style="text-align:center;font-weight:700">${S(v.total)}</td>
+      <td style="text-align:center;color:#16A34A;font-weight:600">${S(v.ent)}</td>
+      <td style="text-align:center;color:#DC2626;font-weight:600">${S(v.rec)}</td>
+      <td style="text-align:center;color:#D97706;font-weight:600">${S(v.trans)}</td>
+      <td style="text-align:center"><span style="background:${cls}18;color:${cls};padding:2px 8px;border-radius:10px;font-weight:700;font-size:12px">${ef.toFixed(1)+'%'}</span></td>
+      <td style="text-align:right;font-family:monospace">${sMon(v.monto)}</td>
+    </tr>`;
+  }).join('');
+
+  // ── KPIs MANUALES COMPLEMENTARIOS ──
+  const KMANS=[
+    {k:'km_c1',l:'Km recorridos C1',u:'km',ico:'🛣'},
+    {k:'km_c2',l:'Km recorridos C2',u:'km',ico:'🛣'},
+    {k:'comb_c1',l:'Combustible C1 (S/)',u:'S/',ico:'⛽'},
+    {k:'comb_c2',l:'Combustible C2 (S/)',u:'S/',ico:'⛽'},
+    {k:'peaje_c1',l:'Peajes C1 (S/)',u:'S/',ico:'🏁'},
+    {k:'peaje_c2',l:'Peajes C2 (S/)',u:'S/',ico:'🏁'},
+    {k:'incidentes',l:'Incidentes del día',u:'',ico:'⚠️'},
+    {k:'danos',l:'Productos con daño',u:'',ico:'📦'},
+  ];
+  document.getElementById('kpi-manual-grid').innerHTML=`<div class="kg">`+KMANS.map(it=>{
+    const v=ST.kpi[it.k]??'';
+    return `<div class="kt" style="flex-direction:column;align-items:flex-start;gap:4px;padding:12px">
+      <div style="font-size:18px">${it.ico}</div>
+      <div class="kl" style="font-size:12px;font-weight:700">${it.l}</div>
+      <input class="ki" type="number" step="0.1" value="${v}" placeholder="Ingresar ${it.u}"
+        style="width:100%;margin-top:4px"
+        oninput="ST.kpi['${it.k}']=this.value;save()">
+    </div>`;
+  }).join('')+`</div>
+  <div style="margin-top:12px;padding:12px;background:#F0FDF4;border-radius:8px;font-size:12px;color:#166534">
+    💡 <strong>Costo por entrega estimado:</strong>
+    <span id="cpe-val" style="font-size:14px;font-weight:700">
+      ${d.totEnt>0?'S/ '+((((+ST.kpi.comb_c1||0)+(+ST.kpi.comb_c2||0)+(+ST.kpi.peaje_c1||0)+(+ST.kpi.peaje_c2||0))/d.totEnt)||0).toFixed(2):'Completa combustible y peajes arriba'}
+    </span>
+  </div>`;
+}
+
+function expKpiPdf(){
+  const d=kpiData();
+  const hoy=new Date().toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const fvRows=Object.entries(d.byFV).sort((a,b)=>b[1].total-a[1].total);
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>KPI Logístico ${hoy} — Grupo Merpes</title>
+<style>
+body{font-family:Arial,sans-serif;font-size:11pt;margin:20px;color:#1a1a2e}
+h1{font-size:16pt;color:#1A56E8;margin-bottom:4px}
+h2{font-size:12pt;color:#374151;margin:16px 0 6px;border-bottom:2px solid #E5E7EB;padding-bottom:4px}
+table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:10pt}
+th{background:#1A56E8;color:white;padding:6px 8px;text-align:center;font-size:10pt}
+td{padding:5px 8px;border-bottom:1px solid #E5E7EB}
+tr:nth-child(even){background:#F9FAFB}
+.tot{font-weight:700;background:#EFF6FF!important}
+.ent{color:#16A34A;font-weight:700}
+.rec{color:#DC2626;font-weight:700}
+.trans{color:#D97706;font-weight:600}
+.tiles{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+.tile{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:10px 14px;min-width:120px}
+.tile .v{font-size:18pt;font-weight:700;color:#1A56E8}
+.tile .l{font-size:9pt;color:#6B7280}
+@media print{body{margin:10mm}}
+</style></head><body>
+<h1>📊 KPI Logístico Diario — Grupo Merpes</h1>
+<p style="color:#6B7280;font-size:10pt;margin:0">Fecha: ${hoy} &nbsp;|&nbsp; Generado: ${new Date().toLocaleTimeString('es-PE')}</p>
+<div class="tiles">
+  <div class="tile"><div class="v">${S(d.total)}</div><div class="l">Total Pedidos</div></div>
+  <div class="tile"><div class="v ent">${S(d.totEnt)}</div><div class="l">Entregados · ${sMon(d.mtoEnt)}</div></div>
+  <div class="tile"><div class="v trans">${S(d.totTrans)}</div><div class="l">En Tránsito · ${sMon(d.mtoTrans)}</div></div>
+  <div class="tile"><div class="v rec">${S(d.totRec)}</div><div class="l">Rechazos · ${sMon(d.mtoRec)}</div></div>
+  <div class="tile"><div class="v" style="color:#6B7280">${S(d.totAnu)}</div><div class="l">Anulados</div></div>
+  <div class="tile"><div class="v" style="color:${d.efectividad>=90?'#16A34A':d.efectividad>=75?'#D97706':'#DC2626'}">${d.efectividad.toFixed(1)}%</div><div class="l">Efectividad</div></div>
+  <div class="tile"><div class="v">${sMon(d.mtoTotal)}</div><div class="l">Valor Total Cartera</div></div>
+</div>
+<h2>Por Fuerza de Venta</h2>
+<table><thead><tr><th>Fuerza de Venta</th><th>Entregado</th><th>S/ Entregado</th><th>Rechazo</th><th>S/ Rechazo</th><th>En Tránsito</th><th>Total</th><th>S/ Total</th><th>Efectividad</th></tr></thead><tbody>
+${fvRows.map(([fv,v])=>{const ef=v.ent+v.rec>0?(v.ent/(v.ent+v.rec)*100):0;return`<tr><td><strong>${fv}</strong></td><td class="ent" style="text-align:center">${S(v.ent)}</td><td style="text-align:right">${sMon(v.mEnt)}</td><td class="rec" style="text-align:center">${S(v.rec)}</td><td class="rec" style="text-align:right">${sMon(v.mRec)}</td><td class="trans" style="text-align:center">${S(v.trans)}</td><td style="text-align:center;font-weight:700">${S(v.total)}</td><td style="text-align:right;font-weight:700">${sMon(v.mTotal)}</td><td style="text-align:center;font-weight:700;color:${ef>=90?'#16A34A':ef>=75?'#D97706':'#DC2626'}">${ef.toFixed(1)}%</td></tr>`;}).join('')}
+<tr class="tot"><td>TOTAL</td><td class="ent" style="text-align:center">${S(d.totEnt)}</td><td style="text-align:right">${sMon(d.mtoEnt)}</td><td class="rec" style="text-align:center">${S(d.totRec)}</td><td class="rec" style="text-align:right">${sMon(d.mtoRec)}</td><td class="trans" style="text-align:center">${S(d.totTrans)}</td><td style="text-align:center">${S(d.total)}</td><td style="text-align:right">${sMon(d.mtoTotal)}</td><td style="text-align:center">${d.efectividad.toFixed(1)}%</td></tr>
+</tbody></table>
+<h2>En Tránsito por Fuerza de Venta</h2>
+<table><thead><tr><th>Fuerza de Venta</th><th>Pedidos en Tránsito</th><th>Suma de Costo</th></tr></thead><tbody>
+${fvRows.filter(([,v])=>v.trans>0).sort((a,b)=>b[1].trans-a[1].trans).map(([fv,v])=>`<tr><td><strong>${fv}</strong></td><td class="trans" style="text-align:center">${S(v.trans)}</td><td style="text-align:right;font-weight:700">${sMon(v.mTrans)}</td></tr>`).join('')}
+</tbody></table>
+<p style="font-size:9pt;color:#9CA3AF;margin-top:20px">Generado por Sistema de Distribución Grupo Merpes · ${new Date().toLocaleString('es-PE')}</p>
+</body></html>`;
+  const w=window.open('','_blank');
+  w.document.write(html);w.document.close();
+  setTimeout(()=>{w.focus();w.print();},400);
 }
 
 // Toast
@@ -1848,7 +2114,21 @@ function toast(msg,t='info'){
   clearTimeout(_tt);_tt=setTimeout(()=>el.classList.remove('show'),3200);
 }
 
-function renderAll(){renderMotor();renderRutas();renderProvincias();renderFlota();}
+function renderAll(){
+  try{renderMotor();}catch(e){console.error('renderMotor error:',e);}
+  try{renderRutas();}catch(e){console.error('renderRutas error:',e);}
+  try{renderProvincias();}catch(e){console.error('renderProvincias error:',e);}
+  try{renderFlota();}catch(e){console.error('renderFlota error:',e);}
+  try{renderKpi();}catch(e){console.error('renderKpi error:',e);}
+  // Actualizar badge de fecha en header
+  try{
+    const hd=document.getElementById('hdr-date');
+    if(hd){
+      const ahora=new Date();
+      hd.textContent=ahora.toLocaleDateString('es-PE',{weekday:'short',day:'2-digit',month:'short',year:'numeric'});
+    }
+  }catch(e){}
+}
 </script>
 <!-- CONFIG MODAL -->
 <div id="cfg_modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:8000;align-items:center;justify-content:center;">
