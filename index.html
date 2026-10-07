@@ -1065,20 +1065,38 @@ function lfo(f,t){
         console.log('[lfo] Archivo:',f.name,' Tipo:',t,' Hoja elegida:',sheetName,
                     ' Hojas disponibles:',wb.SheetNames);
         const ws=wb.Sheets[sheetName];
-        // Convertir a array de objetos (primera fila = headers)
-        const rawRows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
-        if(!rawRows||rawRows.length===0){
+        // Leer como array de arrays para detectar fila de headers aunque no esté en la fila 1
+        // (ESPE y RPTR tienen ~5 filas de título antes de los headers reales)
+        const raw2d=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+        if(!raw2d||raw2d.length<2){
           smsg(t,'error','La hoja "'+sheetName+'" está vacía o sin datos.');
           return;
         }
-        // Normalizar keys a minúsculas para que todos los parsers funcionen igual
-        // que con CSV (donde csv() ya hacía hdr.toLowerCase())
-        const rows=rawRows.map(r=>{
-          const norm={};
-          Object.keys(r).forEach(k=>{norm[k.toLowerCase().trim()]=r[k];});
-          return norm;
-        });
-        console.log('[lfo] Filas leídas:',rows.length,' Headers:',Object.keys(rows[0]));
+        // Encontrar la fila de headers: primera fila con >=3 celdas no vacías
+        let hdrIdx=0;
+        for(let i=0;i<Math.min(raw2d.length,15);i++){
+          const nonempty=raw2d[i].filter(v=>v!==null&&v!==undefined&&String(v).trim()!=='');
+          if(nonempty.length>=3){hdrIdx=i;break;}
+        }
+        const hdrRaw=raw2d[hdrIdx];
+        // Normalizar headers: minúsculas, sin espacios extra, sin tildes en comparación
+        const hdr=hdrRaw.map(h=>String(h||'').toLowerCase().trim());
+        console.log('[lfo] Hoja:',sheetName,' headers en fila',hdrIdx,':',hdr);
+        // Construir array de objetos con keys normalizadas
+        const rows=[];
+        for(let i=hdrIdx+1;i<raw2d.length;i++){
+          const cols=raw2d[i];
+          // Saltar filas completamente vacías
+          if(!cols.some(v=>v!==null&&v!==undefined&&String(v).trim()!=='')) continue;
+          const obj={};
+          hdr.forEach((h,ci)=>{if(h)obj[h]=cols[ci]!==undefined&&cols[ci]!==null?String(cols[ci]).trim():'';});
+          rows.push(obj);
+        }
+        if(rows.length===0){
+          smsg(t,'error','Sin filas de datos en "'+sheetName+'" (headers en fila '+(hdrIdx+1)+').');
+          return;
+        }
+        console.log('[lfo] Filas leídas:',rows.length,' Muestra:',rows[0]);
         // Dispatch al parser correspondiente
         if(t==='espe')     pE(rows);
         else if(t==='rptr')pR(rows);
@@ -1126,7 +1144,7 @@ function pE(rows){
   rows.forEach(r=>{
     const num=r['número']||r['numero']||r['n° pedido']||r['nro pedido']||'';
     const est=(r['estado']||'').toUpperCase();
-    if(!num||!['ENTRANSITO','PROGRAMADO','CONFIRMADO','EN TRANSITO','EN TRÁNSITO'].includes(est))return;
+    if(!num||!['ENTRANSITO','PROGRAMADO','CONFIRMADO','EN TRANSITO','EN TRÁNSITO','OBSERVADO','APROBADO'].includes(est))return;
     if(!ST.pedidos.some(p=>p.numero===num)){
       ST.pedidos.push(mkP({numero:num,canal:r['p. emis']||r['canal']||'',
         cliente:r['razon social']||r['cliente']||'',tel:r['telefono']||r['teléfono']||'',
