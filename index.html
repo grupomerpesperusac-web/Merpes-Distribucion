@@ -1036,7 +1036,9 @@ function pp(t){const v=document.getElementById('pa-'+t).value;if(!v.trim()){smsg
 function csv(txt,t){
   const lines=txt.trim().split('\n').filter(l=>l.trim());
   if(lines.length<2){smsg(t,'error','Archivo vacío');return;}
-  const sep=lines[0].includes('\t')?'\t':',';
+  // Detectar separador: tab, punto y coma, o coma
+  const firstLine=lines[0];
+  const sep=firstLine.includes('\t')?'\t':firstLine.includes(';')?';':',';
   const hdr=lines[0].split(sep).map(h=>h.trim().replace(/^"+|"+$/g,'').toLowerCase());
   const rows=lines.slice(1).map(l=>{
     const cols=l.split(sep).map(c=>c.trim().replace(/^"+|"+$/g,''));
@@ -1184,13 +1186,19 @@ function pTrans(rows){
 // --- MYBEES ---
 function pMyb(rows){
   let n=0;
+  // Debug: loguea los primeros headers para diagnóstico
+  if(rows.length>0){
+    const hdrs=Object.keys(rows[0]);
+    console.log('[Mybees] Headers detectados ('+hdrs.length+'):', hdrs);
+    console.log('[Mybees] Primera fila:', rows[0]);
+  }
   rows.forEach(r=>{
     // Normalize: strip accents, trim, lowercase for lookup
     const g = k => {
+      const clean = s => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
+      const tgt = clean(k);
       for(const key of Object.keys(r)){
-        const norm = key.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
-        const tgt  = k.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
-        if(norm===tgt) return r[key];
+        if(clean(key)===tgt) return r[key];
       }
       return '';
     };
