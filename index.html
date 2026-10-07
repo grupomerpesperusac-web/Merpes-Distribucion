@@ -529,13 +529,13 @@ tbody td:first-child{padding-left:14px}
   <div class="ph"><h1>Motor de Ruteo — Plan del Día</h1><p>Asigne unidad y vuelta a cada pedido. Capacidad se actualiza en tiempo real.</p></div>
   <div id="motor-res" class="rg"></div>
   <div class="mtb">
-    <input class="si" id="ms-in" placeholder="🔍 Pedido, cliente, distrito..." oninput="renderMotor()">
-    <select class="fs" id="mf-zona" onchange="renderMotor()">
+    <input class="si" id="ms-in" placeholder="🔍 Pedido, cliente, distrito..." oninput="renderMotor(true)">
+    <select class="fs" id="mf-zona" onchange="renderMotor(true)">
       <option value="">Todas las zonas</option>
       <option>NORTE</option><option>SUR</option><option>ESTE</option>
       <option>CALLAO</option><option>CENTRO-SUR</option><option>PROVINCIA</option>
     </select>
-    <select class="fs" id="mf-und" onchange="renderMotor()">
+    <select class="fs" id="mf-und" onchange="renderMotor(true)">
       <option value="">Todas las unidades</option>
       <option>SIN ASIGNAR</option><option>C1</option><option>C2</option><option>C3</option>
       <option>M1</option><option>M2</option><option>M3</option><option>M4</option><option>PROVINCIA</option>
@@ -555,7 +555,9 @@ tbody td:first-child{padding-left:14px}
       <th>Estado</th><th>Fuente</th><th>Acciones</th>
     </tr></thead>
     <tbody id="motor-body"></tbody>
-  </table></div></div>
+  </table></div>
+  <div id="motor-pager"></div>
+</div></div>
 </section>
 
 <!-- ══════════════════════════════════════════════════════ -->
@@ -721,6 +723,8 @@ const LIMA=['LIMA','CALLAO'];
 let ST={pedidos:[],rechazos:[],espe_todos:[],trans_data:[],kpi:{},cargados:{espe:0,rptr:0,base:0,conf:0,trans:0,myb:0}};
 let editIdx=null;
 let nextCid=4, nextMid=5;
+const MOTOR_PG_SIZE=100; // filas por página en el motor de rutas
+let motorPage=0;
 
 // Flota inicial (el estilo del archivo de proyecto: camiones y motos separados)
 let flota={
@@ -1303,8 +1307,10 @@ function pBase(rows){
 }
 
 // --- CONFIRMACIONES ---
+// ⚠️ CONF solo enriquece pedidos ya existentes en ST.pedidos — NUNCA crea nuevos.
+// Tiene 10k+ filas; agregar todos al motor de rutas lo bloquearía.
 function pConf(rows){
-  let co=0,re=0;
+  let co=0,re=0,enr=0;
   rows.forEach(r=>{
     const num=r['pedido']||r['número']||r['numero']||'';
     const est=(r['estado']||'').toUpperCase();
@@ -1316,23 +1322,23 @@ function pConf(rows){
       p.motivo_rechazo=r['motivo rechazo']||r['motivo']||'';
       if(est==='CONFIRMADO'||est==='PROGRAMADO')co++;
       if(est==='RECHAZO'||est==='RECHAZADO')re++;
-    } else if(num){
-      const d=(r['distrito']||'').toUpperCase();
-      ST.pedidos.push(mkP({numero:num,canal:'',cliente:r['cliente']||'',
-        tel:r['telefono']||'',distrito:d,depto:'LIMA',
-        ventana:nv(det)||'TARDE (hasta 2PM)',conf_estado:est,fuente:'CONF'}));
-      if(est==='CONFIRMADO')co++;
+      enr++;
     }
+    // Pedidos de CONF que no existen en ST.pedidos son ignorados intencionalmente
+    // para no inflar el motor de rutas con el historial completo de confirmaciones.
   });
-  ST.cargados.conf=co+re;
-  document.getElementById('conf-c').textContent=co+' conf, '+re+' rechazos';
-  smsg('conf','ok','✅ '+co+' confirmados · '+re+' rechazos');
+  ST.cargados.conf=rows.length;
+  document.getElementById('conf-c').textContent=rows.length+' registros · '+enr+' cruzados';
+  smsg('conf','ok','✅ '+co+' confirmados · '+re+' rechazos · '+enr+' enriquecidos');
   save();renderAll();renderIntStatus();
 }
 
 // --- TRÁNSITO ---
+// ⚠️ TRÁNSITO solo enriquece pedidos ya existentes en ST.pedidos — NUNCA crea nuevos.
+// Guarda el array completo en ST.trans_data para los KPIs (tablas de placa/unidad).
 function pTrans(rows){
-  let n=0;
+  ST.trans_data=rows; // guardamos todos para KPI de unidades
+  let enr=0;
   rows.forEach(r=>{
     const num=r['pedido']||r['número']||r['numero']||'';
     if(!num)return;
@@ -1345,24 +1351,14 @@ function pTrans(rows){
       if(est)p.trans_estado=est;
       const det=r['detalle']||r['sub detalle']||'';
       if(det&&!p.detalle)p.detalle=det;
-      n++;
-    } else if(num){
-      const d=(r['distrito']||'').toUpperCase();
-      const est=(r['estado']||'').toUpperCase();
-      const p2=mkP({numero:num,canal:r['fuerza de venta']||r['canal']||'',
-        cliente:r['cliente']||'',tel:r['telefono']||r['teléfono']||'',
-        distrito:d,depto:'LIMA',dir:r['dirección']||r['direccion']||'',
-        estado:est,fuente:'TRANSITO',
-        placa:(r['placa']||'').toUpperCase(),
-        detalle:r['detalle']||r['sub detalle']||''});
-      if(r['unidad'])p2.unidad=r['unidad'].toUpperCase();
-      if(r['vuelta']){const v=(r['vuelta']||'').toUpperCase();p2.vuelta=v.includes('2')?'2DA VUELTA':'1ERA VUELTA';}
-      ST.pedidos.push(p2);n++;
+      enr++;
     }
+    // Pedidos de TRÁNSITO que no existen en ST.pedidos son ignorados en el motor de rutas.
+    // Sus datos de placa/unidad/costo sí se usan para la tabla KPI de transporte.
   });
-  ST.cargados.trans=n;
-  document.getElementById('trans-c').textContent=n+' registros';
-  smsg('trans','ok','✅ '+n+' registros de Tránsito integrados');
+  ST.cargados.trans=rows.length;
+  document.getElementById('trans-c').textContent=rows.length+' registros · '+enr+' cruzados';
+  smsg('trans','ok','✅ '+rows.length+' registros Tránsito · '+enr+' enriquecidos en motor');
   save();renderAll();renderIntStatus();
 }
 
@@ -1532,7 +1528,8 @@ function addM(){
 // ══════════════════════════════════════════════
 function getUnitIds(){return[...flota.camiones,...flota.motos].map(u=>u.id);}
 
-function renderMotor(){
+function renderMotor(pgReset){
+  if(pgReset)motorPage=0;
   const q=(document.getElementById('ms-in').value||'').toLowerCase();
   const fz=document.getElementById('mf-zona').value;
   const fu=document.getElementById('mf-und').value;
@@ -1543,15 +1540,25 @@ function renderMotor(){
     if(fu&&p.unidad!==fu)return false;
     return true;
   });
-  document.getElementById('mcnt').textContent=`${lista.length} / ${ST.pedidos.filter(p=>p.zona!=='PROVINCIA').length} pedidos Lima`;
+  const total=lista.length;
+  const totalLima=ST.pedidos.filter(p=>p.zona!=='PROVINCIA').length;
+  const totalPags=Math.max(1,Math.ceil(total/MOTOR_PG_SIZE));
+  if(motorPage>=totalPags)motorPage=totalPags-1;
+  const desde=motorPage*MOTOR_PG_SIZE;
+  const hasta=Math.min(desde+MOTOR_PG_SIZE,total);
+  const pagina=lista.slice(desde,hasta);
+
+  document.getElementById('mcnt').textContent=
+    `${total} pedidos Lima (${totalLima} total) — pág ${motorPage+1}/${totalPags}`;
+
   const uids=getUnitIds();
-  document.getElementById('motor-body').innerHTML=lista.map((p,i)=>{
+  document.getElementById('motor-body').innerHTML=pagina.map((p,i)=>{
     const gi=ST.pedidos.indexOf(p);
     const vb=p.ventana&&(p.ventana.includes('hasta 2PM')||p.ventana.includes('hasta 12M')||p.ventana.includes('hasta 1PM'))?'#FFFBEB':'';
     const zc=p.zona.replace(/[^A-Z]/g,'');
     const fuenteColor={ESPE:'#DBEAFE',RPTR:'#EDE9FE',BASE:'#DCFCE7',CONF:'#FEF3C7',TRANSITO:'#CCFBF1',MYBEES:'#F3E8FF',MANUAL:'#F3F4F6'}[p.fuente]||'#F3F4F6';
     return `<tr>
-      <td style="color:var(--ink-soft);font-size:11px">${i+1}</td>
+      <td style="color:var(--ink-soft);font-size:11px">${desde+i+1}</td>
       <td style="font-family:monospace;font-size:11.5px;font-weight:700">${p.numero}</td>
       <td style="font-size:11px;color:var(--ink-soft)">${p.canal||'—'}</td>
       <td><span class="zb z${zc}">${p.zona}</span></td>
@@ -1582,6 +1589,21 @@ function renderMotor(){
       </td>
     </tr>`;
   }).join('');
+
+  // Controles de paginación
+  let pgHtml='';
+  if(totalPags>1){
+    pgHtml=`<div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+      <button class="btn btn-s btn-sm" onclick="motorPage=0;renderMotor()" ${motorPage===0?'disabled':''}>⏮ Inicio</button>
+      <button class="btn btn-s btn-sm" onclick="motorPage--;renderMotor()" ${motorPage===0?'disabled':''}>◀ Anterior</button>
+      <span style="font-size:12px;color:var(--ink-soft)">Mostrando ${desde+1}–${hasta} de ${total}</span>
+      <button class="btn btn-s btn-sm" onclick="motorPage++;renderMotor()" ${motorPage>=totalPags-1?'disabled':''}>Siguiente ▶</button>
+      <button class="btn btn-s btn-sm" onclick="motorPage=${totalPags-1};renderMotor()" ${motorPage>=totalPags-1?'disabled':''}>Final ⏭</button>
+    </div>`;
+  }
+  const pgEl=document.getElementById('motor-pager');
+  if(pgEl)pgEl.innerHTML=pgHtml;
+
   renderMotorRes();
 }
 
