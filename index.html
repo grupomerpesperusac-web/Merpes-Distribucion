@@ -276,8 +276,7 @@ tbody td:first-child{padding-left:14px}
 </style>
 <!-- SheetJS para leer archivos .xlsx directamente sin exportar a CSV -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV/XN/WPeE=" crossorigin=""></script>
+<!-- Mapa SVG inline — sin dependencias externas -->
 </head>
 <body>
 
@@ -539,11 +538,23 @@ tbody td:first-child{padding-left:14px}
         <span style="background:#7C3AED;color:#fff;padding:2px 8px;border-radius:10px">● C3</span>
         <span style="background:#0D9488;color:#fff;padding:2px 8px;border-radius:10px">● Motos</span>
         <span style="background:#6B7280;color:#fff;padding:2px 8px;border-radius:10px">● Sin asignar</span>
-        <button class="btn btn-s btn-sm" onclick="initMotorMap()">🔄 Actualizar</button>
+        <button class="btn btn-s btn-sm" onclick="renderMotorMap()">🔄 Actualizar</button>
       </div>
     </div>
     <div class="cb" style="padding:10px">
-      <div id="motor-map" style="height:400px;border-radius:8px;border:1px solid var(--brd);background:#e8f4f8;"></div>
+      <div id="motor-map" style="height:440px;border-radius:8px;border:1px solid var(--brd);background:#e8f4f8;overflow:hidden;position:relative;">
+        <svg id="lima-svg" viewBox="0 0 600 440" style="width:100%;height:100%;display:block;" xmlns="http://www.w3.org/2000/svg">
+          <!-- Fondo -->
+          <rect width="600" height="440" fill="#dde8f4"/>
+          <!-- Etiqueta título -->
+          <text x="10" y="20" font-size="11" fill="#555" font-family="sans-serif">Lima Metropolitana — Puntos de Despacho</text>
+          <!-- Contenedor de puntos (se llena por JS) -->
+          <g id="map-puntos"></g>
+          <!-- Leyenda de zonas aproximadas -->
+          <text x="10" y="432" font-size="9" fill="#888" font-family="sans-serif">Los puntos representan el distrito central. Pasa el cursor para ver detalles.</text>
+        </svg>
+        <div id="map-tooltip" style="display:none;position:absolute;background:rgba(15,25,35,.9);color:#fff;padding:8px 12px;border-radius:8px;font-size:12px;pointer-events:none;max-width:220px;line-height:1.5;z-index:10;"></div>
+      </div>
       <div id="motor-map-stats" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:10px"></div>
     </div>
   </div>
@@ -1660,7 +1671,12 @@ function renderMotor(pgReset){
   renderMotorRes();
 }
 
-function sU(i,v,sel){ST.pedidos[i].unidad=v;sel.className='us u'+v.replace(/[^A-Z0-9]/g,'');save();renderMotor();renderFlota();}
+function sU(i,v,sel){
+  ST.pedidos[i].unidad=v;
+  ST.pedidos[i].tipo_asig='MANUAL'; // marcar como asignado manualmente → "Sugerir" lo respeta
+  sel.className='us u'+v.replace(/[^A-Z0-9]/g,'');
+  save();renderMotor();renderFlota();renderMotorMap();
+}
 function sV(i,v,sel){ST.pedidos[i].vuelta=v;sel.className='vs '+(v==='1ERA VUELTA'?'vv1':'vv2');save();}
 function delP(i){if(!confirm('¿Eliminar?'))return;ST.pedidos.splice(i,1);save();renderAll();}
 function clearM(){if(!confirm('¿Limpiar todos los pedidos?'))return;ST.pedidos=[];save();renderAll();}
@@ -1697,63 +1713,96 @@ function esMoto(prod){
 function autoAsig(forzar){
   const cams=flota.camiones.filter(u=>u.estado==='activa');
   const mots=flota.motos.filter(u=>u.estado==='activa');
+
+  // Mapa zona → camión para asignación por territorio
   const zm={};
-  cams.forEach(c=>(c.zona||'').split('/').map(z=>z.trim()).forEach(z=>{if(!zm[z])zm[z]=c.id;}));
+  cams.forEach(c=>(c.zona||'').split('/').map(z=>z.trim()).filter(Boolean).forEach(z=>{if(!zm[z])zm[z]=c.id;}));
+
   let mi=0,ci=0;
   const basePeds=ST.pedidos.filter(p=>p.fuente==='BASE'||p.fuente==='MANUAL');
-  // Si forzar=true re-asigna todos; si false solo los SIN ASIGNAR
-  const aAsignar=forzar?basePeds:basePeds.filter(p=>p.unidad==='SIN ASIGNAR');
+
+  // "Sugerir (pendientes)": asigna pedidos SIN tipo_asig (recién cargados) o con SIN ASIGNAR
+  //   Respeta los que el usuario asignó manualmente (tipo_asig==='MANUAL')
+  // "Re-asignar todo": re-asigna absolutamente todos sin excepción, borrando asignaciones manuales
+  const aAsignar = forzar
+    ? basePeds
+    : basePeds.filter(p => !p.tipo_asig || p.tipo_asig === 'PROVINCIA' || p.unidad === 'SIN ASIGNAR');
+
   aAsignar.forEach(p=>{
+    // Provincia siempre va a provincia
     if(p.zona==='PROVINCIA'){p.unidad='PROVINCIA';p.tipo_asig='PROVINCIA';return;}
+
     const prod=(p.producto||'').toLowerCase();
     const peso=(+p.peso||0);
-    const usaMoto=mots.length>0&&esMoto(prod)&&peso<=15;
+
+    // Lógica de asignación por tipo de producto:
+    // - esMoto: producto pequeño (celular, tablet, etc.) Y peso ≤ 20kg Y hay motos activas
+    // - Si NO es moto explícitamente, va a camión (por defecto)
+    const usaMoto = mots.length > 0 && esMoto(prod) && peso <= 20;
+
     if(usaMoto){
-      p.unidad=mots[mi%mots.length].id;
-      p.tipo_asig='MOTO';
+      // Distribución round-robin entre motos activas
+      p.unidad = mots[mi % mots.length].id;
+      p.tipo_asig = 'MOTO';
       mi++;
     } else {
-      p.unidad=zm[p.zona]||cams[ci%Math.max(cams.length,1)]?.id||'SIN ASIGNAR';
-      p.tipo_asig='CAMION';
-      ci++;
+      // Buscar camión por zona primero, si no hay → round-robin
+      const camPorZona = zm[p.zona] ? zm[p.zona] : null;
+      if(camPorZona){
+        p.unidad = camPorZona;
+      } else if(cams.length > 0){
+        p.unidad = cams[ci % cams.length].id;
+        ci++;
+      } else {
+        p.unidad = 'SIN ASIGNAR';
+      }
+      p.tipo_asig = 'CAMION';
     }
-    if(p.ventana&&(p.ventana.includes('hasta 2PM')||p.ventana.includes('hasta 12M')||p.ventana.includes('hasta 1PM')))
+
+    // Asignar vuelta por ventana horaria
+    const v=(p.ventana||'').toLowerCase();
+    if(v.includes('hasta 2pm')||v.includes('hasta 12m')||v.includes('hasta 1pm')||v.includes('hasta 12pm')||v.includes('mañana')||v.includes('manana'))
       p.vuelta='1ERA VUELTA';
-    else p.vuelta='2DA VUELTA';
+    else
+      p.vuelta='2DA VUELTA';
   });
-  save();renderAll();
-  if(motorMapReady)renderMotorMap();else initMotorMap();
+
+  save();
+  renderAll();
+  renderMotorMap();
+
   const nMoto=basePeds.filter(p=>p.tipo_asig==='MOTO').length;
   const nCam=basePeds.filter(p=>p.tipo_asig==='CAMION').length;
+  const nProv=basePeds.filter(p=>p.tipo_asig==='PROVINCIA').length;
+  const nSin=basePeds.filter(p=>!p.tipo_asig||p.unidad==='SIN ASIGNAR').length;
   const accion=forzar?'Re-asignación completa':'Sugerencia aplicada';
-  toast(`🤖 ${accion}: ${nCam} camión · ${nMoto} moto`,'success');
+  let msg=`🤖 ${accion}: ${nCam} camión · ${nMoto} moto`;
+  if(nProv>0)msg+=` · ${nProv} prov.`;
+  if(nSin>0)msg+=` · ${nSin} sin asignar`;
+  toast(msg,'success');
 }
 
 // ══════════════════════════════════════════════
 // MAPA LEAFLET — Motor de Ruteo
 // ══════════════════════════════════════════════
-let motorMapInst=null;
-let motorMapReady=false;
+// ══════════════════════════════════════════════
+// MAPA SVG INLINE DE LIMA — sin dependencias externas
+// Coordenadas convertidas al espacio SVG 600×440
+// Área cubierta: lat -11.45 a -12.35, lng -77.20 a -76.80
+// ══════════════════════════════════════════════
 
-// Inicialización robusta: crea el mapa solo cuando el div es visible y tiene tamaño
-function initMotorMap(){
-  const el=document.getElementById('motor-map');
-  if(!el)return;
-  if(!motorMapInst){
-    try{
-      motorMapInst=L.map('motor-map',{center:[-12.05,-77.03],zoom:11,zoomControl:true});
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-        attribution:'© <a href="https://openstreetmap.org">OpenStreetMap</a>',maxZoom:18
-      }).addTo(motorMapInst);
-      motorMapReady=true;
-    }catch(e){console.warn('Leaflet init error:',e);return;}
-  }
-  // Forzar re-cálculo de tamaño (crítico si la pestaña no estaba visible)
-  setTimeout(()=>{
-    if(motorMapInst){motorMapInst.invalidateSize();renderMotorMap();}
-  },100);
+// Convierte coordenadas geográficas a píxeles SVG
+const SVG_W=600, SVG_H=440;
+const LAT_MIN=-12.35, LAT_MAX=-11.45; // sur a norte
+const LNG_MIN=-77.20, LNG_MAX=-76.80; // oeste a este
+
+function latLngToSVG(lat,lng){
+  const x=((lng-LNG_MIN)/(LNG_MAX-LNG_MIN))*SVG_W;
+  const y=((LAT_MAX-lat)/(LAT_MAX-LAT_MIN))*SVG_H; // invertir Y (lat crece hacia norte)
+  return [x,y];
 }
 
+// Diccionario de distritos con coordenadas reales
 const LIMA_DISTRITOS={
   'MIRAFLORES':[-12.1191,-77.0282],'SAN ISIDRO':[-12.0940,-77.0399],'SURCO':[-12.1469,-76.9967],
   'SURQUILLO':[-12.1126,-77.0001],'BARRANCO':[-12.1513,-77.0217],'CHORRILLOS':[-12.1737,-77.0176],
@@ -1766,56 +1815,175 @@ const LIMA_DISTRITOS={
   'LURIN':[-12.2765,-76.8699],'PACHACAMAC':[-12.2287,-76.8773],'BREÑA':[-12.0700,-77.0483],
   'JESUS MARIA':[-12.0717,-77.0397],'LINCE':[-12.0836,-77.0330],'MAGDALENA':[-12.0917,-77.0722],
   'PUEBLO LIBRE':[-12.0773,-77.0629],'SAN MIGUEL':[-12.0769,-77.0847],'SAN BORJA':[-12.1022,-77.0047],
-  'LA VICTORIA':[-12.0660,-77.0135],'LIMA':[-12.0464,-77.0428],
-  'RIMAC':[-12.0388,-77.0282],'SAN MARTIN':[-12.0052,-77.0861],'LURIGANCHO':[-11.9872,-76.9013],
+  'LA VICTORIA':[-12.0660,-77.0135],'LIMA':[-12.0464,-77.0428],'CERCADO DE LIMA':[-12.0464,-77.0428],
+  'RIMAC':[-12.0388,-77.0282],'LURIGANCHO':[-11.9872,-76.9013],
   'CIENEGUILLA':[-12.0731,-76.8283],'CALLAO':[-12.0561,-77.1182],'BELLAVISTA':[-12.0623,-77.1042],
-  'VENTANILLA':[-11.8757,-77.1347],'HUARAL':[-11.4973,-77.2094],'CHACLACAYO':[-11.9774,-76.7658],
-  'ATE-VITARTE':[-12.0267,-76.9138],'CARMEN DE LA LEGUA':[-12.0516,-77.1038]
+  'VENTANILLA':[-11.8757,-77.1347],'CHACLACAYO':[-11.9774,-76.7658],
+  'ATE-VITARTE':[-12.0267,-76.9138],'CARMEN DE LA LEGUA':[-12.0516,-77.1038],
+  'LA PERLA':[-12.0658,-77.1159],'MI PERU':[-11.8512,-77.1166],
+  'SANTA ROSA':[-11.7851,-77.1779],'ANCON':[-11.7723,-77.1596]
 };
-const UNIT_COL={C1:'#1A56E8',C2:'#1E40AF',C3:'#7C3AED',M1:'#0D9488',M2:'#10B981',M3:'#059669',M4:'#047857','SIN ASIGNAR':'#6B7280','PROVINCIA':'#F59E0B'};
+
+const UNIT_COL={
+  C1:'#1A56E8',C2:'#1E40AF',C3:'#7C3AED',
+  M1:'#0D9488',M2:'#10B981',M3:'#059669',M4:'#047857',
+  'SIN ASIGNAR':'#9CA3AF','PROVINCIA':'#F59E0B'
+};
 
 function getCoords(dist){
-  const d=(dist||'').toUpperCase().trim();
+  const d=(dist||'').toUpperCase().trim()
+    .replace('SJLC','SAN JUAN DE LURIGANCHO')
+    .replace('SJM','SAN JUAN DE MIRAFLORES')
+    .replace('VMT','VILLA MARIA DEL TRIUNFO')
+    .replace('VES','VILLA EL SALVADOR')
+    .replace('SMP','SAN MARTIN DE PORRES');
   if(LIMA_DISTRITOS[d])return LIMA_DISTRITOS[d];
-  // Búsqueda parcial
   const key=Object.keys(LIMA_DISTRITOS).find(k=>d.includes(k)||k.includes(d));
   return key?LIMA_DISTRITOS[key]:null;
 }
 
+// Etiquetas de referencia para el mapa SVG
+const MAP_LABELS=[
+  {t:'NORTE',lat:-11.95,lng:-77.06,col:'#0369A1'},
+  {t:'SUR',lat:-12.20,lng:-76.98,col:'#16A34A'},
+  {t:'ESTE',lat:-12.04,lng:-76.87,col:'#7C3AED'},
+  {t:'CALLAO',lat:-12.05,lng:-77.15,col:'#B45309'},
+  {t:'CENTRO',lat:-12.06,lng:-77.04,col:'#0F766E'}
+];
+
+function initMotorMap(){renderMotorMap();}
+
 function renderMotorMap(){
-  if(!motorMapInst||!motorMapReady)return;
-  // Limpiar solo marcadores, mantener tile layer
-  motorMapInst.eachLayer(l=>{if(l instanceof L.CircleMarker||l instanceof L.Marker)motorMapInst.removeLayer(l);});
+  const g=document.getElementById('map-puntos');
+  if(!g)return;
+
+  // Limpiar puntos anteriores (mantener fondo y etiqueta)
+  g.innerHTML='';
+
+  // Dibujar etiquetas de referencia de zonas
+  const labelsG=document.createElementNS('http://www.w3.org/2000/svg','g');
+  MAP_LABELS.forEach(lb=>{
+    const [x,y]=latLngToSVG(lb.lat,lb.lng);
+    const t=document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x',x); t.setAttribute('y',y);
+    t.setAttribute('font-size','10'); t.setAttribute('fill',lb.col);
+    t.setAttribute('font-family','sans-serif'); t.setAttribute('opacity','0.5');
+    t.setAttribute('font-weight','bold');
+    t.textContent=lb.t;
+    labelsG.appendChild(t);
+  });
+  g.appendChild(labelsG);
+
+  // Dibujar grilla de referencia
+  const gridG=document.createElementNS('http://www.w3.org/2000/svg','g');
+  for(let lat=-12.3;lat<=-11.5;lat+=0.1){
+    const [,y]=latLngToSVG(lat,-77.0);
+    const line=document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1',0);line.setAttribute('x2',SVG_W);
+    line.setAttribute('y1',y);line.setAttribute('y2',y);
+    line.setAttribute('stroke','#b8cde8');line.setAttribute('stroke-width','0.5');
+    gridG.appendChild(line);
+  }
+  for(let lng=-77.2;lng<=-76.8;lng+=0.1){
+    const [x]=latLngToSVG(-12.0,lng);
+    const line=document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1',x);line.setAttribute('x2',x);
+    line.setAttribute('y1',0);line.setAttribute('y2',SVG_H);
+    line.setAttribute('stroke','#b8cde8');line.setAttribute('stroke-width','0.5');
+    gridG.appendChild(line);
+  }
+  g.appendChild(gridG);
+
   const basePeds=ST.pedidos.filter(p=>p.fuente==='BASE'||p.fuente==='MANUAL');
-  const sinCoords=[];
   const stats={};
+  const sinCoords=new Set();
+
+  // Agrupar por distrito+unidad para contar
+  const grupos={};
   basePeds.forEach(p=>{
     const uid=p.unidad||'SIN ASIGNAR';
     if(!stats[uid])stats[uid]={cnt:0,kg:0,val:0};
     stats[uid].cnt++;stats[uid].kg+=(+p.peso||0);stats[uid].val+=(+p.precio||0);
     const coords=getCoords(p.distrito);
-    if(!coords){sinCoords.push(p.distrito);return;}
-    const col=UNIT_COL[uid]||'#6B7280';
-    // Añadir pequeño jitter para evitar puntos superpuestos
-    const jlat=(Math.random()-0.5)*0.005;
-    const jlng=(Math.random()-0.5)*0.005;
-    const circle=L.circleMarker([coords[0]+jlat,coords[1]+jlng],{
-      radius:9,fillColor:col,color:'#fff',weight:2,opacity:1,fillOpacity:0.92
-    });
-    circle.bindTooltip(`<b>${p.numero}</b><br>${p.cliente}<br>${p.producto||'—'}<br>${p.distrito}<br><b>${uid}</b>`,{sticky:true});
-    circle.addTo(motorMapInst);
+    if(!coords){sinCoords.add(p.distrito||'(sin distrito)');return;}
+    const key=`${p.distrito}||${uid}`;
+    if(!grupos[key])grupos[key]={coords,uid,peds:[]};
+    grupos[key].peds.push(p);
   });
-  // Stats por unidad
+
+  // Dibujar un círculo por grupo (con radio proporcional a cantidad)
+  const tooltip=document.getElementById('map-tooltip');
+  const mapDiv=document.getElementById('motor-map');
+
+  Object.values(grupos).forEach(gr=>{
+    const [lat,lng]=gr.coords;
+    const [bx,by]=latLngToSVG(lat,lng);
+    // Jitter suave para separar puntos del mismo distrito asignados a distintas unidades
+    const jx=(Math.random()-0.5)*8;
+    const jy=(Math.random()-0.5)*8;
+    const x=Math.max(8,Math.min(SVG_W-8,bx+jx));
+    const y=Math.max(8,Math.min(SVG_H-20,by+jy));
+    const r=Math.min(14,6+gr.peds.length*1.5);
+    const col=UNIT_COL[gr.uid]||'#9CA3AF';
+
+    // Círculo exterior (borde blanco)
+    const outer=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    outer.setAttribute('cx',x);outer.setAttribute('cy',y);outer.setAttribute('r',r+2);
+    outer.setAttribute('fill','white');outer.setAttribute('opacity','0.8');
+    g.appendChild(outer);
+
+    // Círculo interior (color de unidad)
+    const circle=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    circle.setAttribute('cx',x);circle.setAttribute('cy',y);circle.setAttribute('r',r);
+    circle.setAttribute('fill',col);circle.setAttribute('opacity','0.92');
+    circle.setAttribute('cursor','pointer');
+    circle.setAttribute('stroke',col);circle.setAttribute('stroke-width','1');
+
+    // Número de pedidos dentro del círculo
+    if(gr.peds.length>1){
+      const txt=document.createElementNS('http://www.w3.org/2000/svg','text');
+      txt.setAttribute('x',x);txt.setAttribute('y',y+4);
+      txt.setAttribute('text-anchor','middle');txt.setAttribute('font-size','9');
+      txt.setAttribute('fill','white');txt.setAttribute('font-weight','bold');
+      txt.setAttribute('pointer-events','none');
+      txt.textContent=gr.peds.length;
+      g.appendChild(txt);
+    }
+
+    // Tooltip interactivo
+    const tipHtml=`<b>${gr.uid}</b> — ${gr.peds[0].distrito}<br>`+
+      gr.peds.slice(0,5).map(p=>`• ${p.numero} ${(p.cliente||'').substring(0,20)}`).join('<br>')+
+      (gr.peds.length>5?`<br><i>+${gr.peds.length-5} más...</i>`:'');
+    circle.addEventListener('mouseenter',function(e){
+      if(!tooltip||!mapDiv)return;
+      tooltip.innerHTML=tipHtml;
+      tooltip.style.display='block';
+      const rect=mapDiv.getBoundingClientRect();
+      let tx=e.clientX-rect.left+12;
+      let ty=e.clientY-rect.top-10;
+      if(tx+230>SVG_W)tx=tx-240;
+      tooltip.style.left=tx+'px';tooltip.style.top=ty+'px';
+    });
+    circle.addEventListener('mouseleave',function(){if(tooltip)tooltip.style.display='none';});
+    g.appendChild(circle);
+  });
+
+  // Leyenda dinámica de unidades
   const statsEl=document.getElementById('motor-map-stats');
   if(statsEl){
-    statsEl.innerHTML=Object.entries(stats).sort((a,b)=>b[1].cnt-a[1].cnt).map(([uid,v])=>{
-      const col=UNIT_COL[uid]||'#6B7280';
-      return `<div style="background:var(--bg-card);border:1px solid var(--brd);border-radius:8px;padding:10px;border-left:4px solid ${col}">
-        <div style="font-weight:700;font-size:13px;color:${col}">${uid}</div>
-        <div style="font-size:11px;color:var(--ink-soft)">${v.cnt} pedidos · ${v.kg.toFixed(0)} kg · S/ ${v.val.toLocaleString('es-PE',{maximumFractionDigits:0})}</div>
-      </div>`;
-    }).join('');
+    if(Object.keys(stats).length===0){
+      statsEl.innerHTML='<div style="color:#888;font-size:12px;padding:8px">Carga una Base Diaria y presiona "Sugerir" o "Re-asignar todo" para ver los puntos en el mapa.</div>';
+    } else {
+      statsEl.innerHTML=Object.entries(stats).sort((a,b)=>b[1].cnt-a[1].cnt).map(([uid,v])=>{
+        const col=UNIT_COL[uid]||'#9CA3AF';
+        return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:10px;border-left:4px solid ${col}">
+          <div style="font-weight:700;font-size:13px;color:${col}">${uid}</div>
+          <div style="font-size:11px;color:#64748b">${v.cnt} ped. · ${v.kg.toFixed(0)} kg · S/ ${v.val.toLocaleString('es-PE',{maximumFractionDigits:0})}</div>
+        </div>`;
+      }).join('');
+    }
   }
+  if(sinCoords.size>0)console.info('Distritos sin coordenadas:',[...sinCoords]);
 }
 
 function expPlan(){
