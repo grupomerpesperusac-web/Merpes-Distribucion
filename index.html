@@ -2287,12 +2287,48 @@ function initMotorMap(){
   renderMotorMap();
 }
 
+// ── Almacén central Grupo Merpes ─ Calle Los Hornos 154, Urb. Vulcano, Ate ──
+const ALMACEN_LAT=-12.026, ALMACEN_LNG=-76.924;
+
+// Función haversine: distancia en km entre dos puntos lat/lng
+function haversineKm(lat1,lng1,lat2,lng2){
+  const R=6371,dLat=(lat2-lat1)*Math.PI/180,dLng=(lng2-lng1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+// Calcula km totales de una ruta: almacén → paradas (en orden) → almacén
+// Multiplica por 1.35 (factor de red vial Lima)
+function calcRutaKm(paradas){
+  if(!paradas||paradas.length===0)return 0;
+  let km=haversineKm(ALMACEN_LAT,ALMACEN_LNG,paradas[0][0],paradas[0][1]);
+  for(let i=0;i<paradas.length-1;i++)km+=haversineKm(paradas[i][0],paradas[i][1],paradas[i+1][0],paradas[i+1][1]);
+  km+=haversineKm(paradas[paradas.length-1][0],paradas[paradas.length-1][1],ALMACEN_LAT,ALMACEN_LNG);
+  return km*1.35;
+}
+
+// Algoritmo nearest-neighbor para ordenar paradas desde el almacén
+function ordenarRuta(paradas){
+  if(!paradas||paradas.length<=1)return paradas||[];
+  const visitado=new Array(paradas.length).fill(false);
+  const ruta=[];
+  let curLat=ALMACEN_LAT,curLng=ALMACEN_LNG;
+  for(let i=0;i<paradas.length;i++){
+    let bestIdx=-1,bestDist=Infinity;
+    paradas.forEach((p,j)=>{
+      if(visitado[j])return;
+      const d=haversineKm(curLat,curLng,p[0],p[1]);
+      if(d<bestDist){bestDist=d;bestIdx=j;}
+    });
+    if(bestIdx>=0){visitado[bestIdx]=true;ruta.push(paradas[bestIdx]);curLat=paradas[bestIdx][0];curLng=paradas[bestIdx][1];}
+  }
+  return ruta;
+}
+
 function renderMotorMap(){
   const svg=document.getElementById('map-svg');
   if(!svg)return;
 
-  // Reconstruir SVG completo: primero fondo geográfico, luego puntos encima
-  // (no se puede hacer append incremental porque el orden importa en SVG)
   const ns='http://www.w3.org/2000/svg';
   function svgEl(tag,attrs){
     const e=document.createElementNS(ns,tag);
@@ -2303,10 +2339,25 @@ function renderMotorMap(){
   // ── 1. Vaciar el SVG completamente ──
   while(svg.firstChild)svg.removeChild(svg.firstChild);
 
-  // ── 2. Fondo azul (océano/exterior) ──
-  svg.appendChild(svgEl('rect',{x:0,y:0,width:SVG_W,height:SVG_H,fill:'#C8DEFA'}));
+  // ── Definir marcador de flecha para líneas de ruta ──
+  const defs=svgEl('defs',{});
+  const mkArrow=(id,col)=>{
+    const marker=svgEl('marker',{id,markerWidth:'7',markerHeight:'7',refX:'5',refY:'3.5',orient:'auto'});
+    const path=svgEl('path',{d:'M0,0 L0,7 L7,3.5 z',fill:col});
+    marker.appendChild(path);
+    return marker;
+  };
+  // Crear marcadores para cada unidad
+  Object.entries(UNIT_COL).forEach(([uid,col])=>{
+    defs.appendChild(mkArrow('arrow-'+uid,col));
+  });
+  defs.appendChild(mkArrow('arrow-SIN','#9CA3AF'));
+  svg.appendChild(defs);
 
-  // ── 3. Silueta exterior de Lima (tierra) ──
+  // ── 2. Fondo blanco/gris claro (océano/exterior) ──
+  svg.appendChild(svgEl('rect',{x:0,y:0,width:SVG_W,height:SVG_H,fill:'#E8ECF0'}));
+
+  // ── 3. Silueta exterior de Lima (tierra blanca) ──
   const contorno=[
     [-11.76,-77.21],[-11.77,-77.20],[-11.79,-77.17],[-11.82,-77.15],[-11.83,-77.11],
     [-11.85,-77.10],[-11.88,-77.10],[-11.90,-77.13],[-11.92,-77.14],[-11.93,-77.17],
@@ -2321,81 +2372,74 @@ function renderMotorMap(){
     [-11.82,-76.90],[-11.80,-76.93],[-11.80,-77.01],[-11.83,-77.04],[-11.85,-77.03],
     [-11.83,-77.00],[-11.82,-76.97],[-11.84,-76.94],[-11.82,-76.90],[-11.76,-77.21]
   ];
-  svg.appendChild(svgEl('polygon',{points:pts(contorno),fill:'#F0EBE0',stroke:'#B8A888','stroke-width':'1.5'}));
+  svg.appendChild(svgEl('polygon',{points:pts(contorno),fill:'#FAFAFA',stroke:'#B0B8C4','stroke-width':'1.5'}));
 
-  // ── 4. Polígonos de distritos ──
-  const ZONA_COL={NORTE:'#BFDBFE',SUR:'#BBF7D0',ESTE:'#DDD6FE',CALLAO:'#FDE68A',CENTRO:'#99F6E4'};
-  Object.entries(DIST_POLY).forEach(([name,poly])=>{
-    const zona=gz(name,'LIMA');
+  // ── 4. Polígonos de distritos — B&N con leve tonalidad alternada ──
+  const DIST_IDX={};
+  Object.keys(DIST_POLY).forEach((k,i)=>{DIST_IDX[k]=i;});
+  Object.entries(DIST_POLY).forEach(([name,poly],i)=>{
+    const fill=i%2===0?'#F2F4F7':'#E9ECF1';
     const d=svgEl('polygon',{
       points:pts(poly),
-      fill:ZONA_COL[zona]||'#E2E8F0',
-      stroke:'#94A3B8',
-      'stroke-width':'0.8'
+      fill,
+      stroke:'#B0B8C4',
+      'stroke-width':'0.7',
+      opacity:'1'
     });
     svg.appendChild(d);
   });
 
-  // ── 5. Nombres de distritos clave ──
+  // ── 5. Nombres de distritos clave (gris medio) ──
   [
-    ['SJL',-12.02,-76.95],['ATE',-12.04,-76.94],
+    ['SJL',-12.02,-76.95],['ATE',-12.04,-76.925],
     ['SURCO',-12.15,-76.97],['CHORRILLOS',-12.17,-77.01],
     ['MIRAFLORES',-12.12,-77.03],['LA MOLINA',-12.09,-76.93],
-    ['VES',-12.21,-76.94],['VMT',-12.17,-76.94],
+    ['V.E.S.',-12.21,-76.94],['V.M.T.',-12.17,-76.945],
     ['INDEPENDENCIA',-12.00,-77.06],['LOS OLIVOS',-11.99,-77.08],
-    ['COMAS',-11.93,-77.04],['SMP',-12.01,-77.09],
-    ['CALLAO',-12.06,-77.13],['VENTANILLA',-11.88,-77.15],
-    ['CARABAYLLO',-11.87,-77.00],['LURIGANCHO',-11.99,-76.87],
-    ['BARRANCO',-12.15,-77.02],['SAN ISIDRO',-12.10,-77.05],
-    ['SAN BORJA',-12.11,-76.99],['BREÑA',-12.07,-77.06],
-    ['RIMAC',-12.04,-77.04],['PUENTE PIEDRA',-11.87,-77.07]
+    ['COMAS',-11.93,-77.04],['S.M.P.',-12.01,-77.09],
+    ['CALLAO',-12.06,-77.135],['VENTANILLA',-11.87,-77.15],
+    ['CARABAYLLO',-11.875,-77.00],['LURIGANCHO',-11.99,-76.87],
+    ['BARRANCO',-12.155,-77.02],['SAN ISIDRO',-12.10,-77.05],
+    ['SAN BORJA',-12.11,-76.99],['BREÑA',-12.07,-77.065],
+    ['RÍMAC',-12.04,-77.04],['P.PIEDRA',-11.87,-77.07],
+    ['LINCE',-12.085,-77.035],['LA VICTORIA',-12.065,-77.015],
+    ['JESÚS MARÍA',-12.075,-77.05],['MAGDALENA',-12.09,-77.065],
+    ['PUEBLO LIBRE',-12.077,-77.055],['SAN MIGUEL',-12.077,-77.09],
+    ['BELLAVISTA',-12.065,-77.12],['LA PERLA',-12.07,-77.125]
   ].forEach(([name,lat,lng])=>{
     const [x,y]=latLngToSVG(lat,lng);
     const t=svgEl('text',{x,y:''+y,'text-anchor':'middle','dominant-baseline':'middle',
-      'font-size':'7','fill':'#374151','font-family':'system-ui,sans-serif',
-      'font-weight':'600','pointer-events':'none'});
+      'font-size':'6.5','fill':'#6B7280','font-family':'system-ui,sans-serif',
+      'font-weight':'500','pointer-events':'none'});
     t.textContent=name;
     svg.appendChild(t);
   });
 
-  // ── 6. Etiquetas de macro-zonas ──
-  [
-    {t:'NORTE',lat:-11.94,lng:-77.06,col:'#1D4ED8'},
-    {t:'SUR',lat:-12.22,lng:-76.98,col:'#15803D'},
-    {t:'ESTE',lat:-12.03,lng:-76.84,col:'#6D28D9'},
-    {t:'CALLAO',lat:-12.05,lng:-77.19,col:'#92400E'},
-    {t:'CENTRO',lat:-12.08,lng:-77.03,col:'#0F766E'}
-  ].forEach(lb=>{
-    const [x,y]=latLngToSVG(lb.lat,lb.lng);
-    const bg=svgEl('rect',{x:x-18,y:y-9,width:36,height:14,rx:3,fill:lb.col,opacity:'0.22'});
-    svg.appendChild(bg);
-    const t=svgEl('text',{x,y:''+y,'text-anchor':'middle','dominant-baseline':'middle',
-      'font-size':'9','fill':lb.col,'font-family':'system-ui,sans-serif',
-      'font-weight':'800','pointer-events':'none'});
-    t.textContent=lb.t;
-    svg.appendChild(t);
-  });
-
-  // ── 7. Océano label ──
-  {const t=svgEl('text',{x:30,y:480,'font-size':'8','fill':'#1E40AF','font-family':'system-ui,sans-serif',opacity:'0.8','font-weight':'600'});
+  // ── 6. Océano label ──
+  {const t=svgEl('text',{x:28,y:482,'font-size':'7.5','fill':'#8899AA','font-family':'system-ui,sans-serif','font-weight':'600','font-style':'italic'});
   t.textContent='OCÉANO PACÍFICO'; svg.appendChild(t);}
 
-  // ── 8. Brújula ──
-  {const cx=SVG_W-22,cy=22;
-  svg.appendChild(svgEl('circle',{cx,cy,r:13,fill:'white',stroke:'#CBD5E1','stroke-width':'1'}));
-  svg.appendChild(svgEl('polygon',{points:`${cx},${cy-12} ${cx-3.5},${cy+2} ${cx+3.5},${cy+2}`,fill:'#DC2626'}));
-  const tn=svgEl('text',{x:cx,y:cy+10,'text-anchor':'middle','font-size':'7','fill':'#64748B','font-family':'system-ui'});
+  // ── 7. Brújula compacta ──
+  {const cx=SVG_W-18,cy=18;
+  svg.appendChild(svgEl('circle',{cx,cy,r:12,fill:'white',stroke:'#CDD5DF','stroke-width':'1',opacity:'0.95'}));
+  svg.appendChild(svgEl('polygon',{points:`${cx},${cy-10} ${cx-3},${cy+2} ${cx+3},${cy+2}`,fill:'#374151'}));
+  const tn=svgEl('text',{x:cx,y:cy+9,'text-anchor':'middle','font-size':'6','fill':'#374151','font-family':'system-ui','font-weight':'700'});
   tn.textContent='N'; svg.appendChild(tn);}
 
-  // ── 9. Título ──
-  {const t=svgEl('text',{x:8,y:14,'font-size':'9','fill':'#1E293B','font-family':'system-ui,sans-serif','font-weight':'700'});
-  t.textContent='Lima Metropolitana — Puntos de Despacho'; svg.appendChild(t);}
+  // ── 8. Título ──
+  {const t=svgEl('text',{x:8,y:13,'font-size':'9','fill':'#1E293B','font-family':'system-ui,sans-serif','font-weight':'700'});
+  t.textContent='Lima Metropolitana — Rutas de Despacho'; svg.appendChild(t);}
 
-  // ── 10. Puntos de pedidos (encima de todo) ──
+  // ══════════════════════════════════════════════════════════
+  // ── 9. DATOS DE PEDIDOS: agrupar por unidad y por distrito ──
+  // ══════════════════════════════════════════════════════════
   const basePeds=ST.pedidos.filter(p=>p.fuente==='BASE'||p.fuente==='MANUAL');
-  const stats={};
+  const stats={};           // stats por unidad para la leyenda lateral
   const sinCoords=new Set();
+  // grupos: clave = "distrito||uid" → {coords, uid, peds[], seq(asignado luego)}
   const grupos={};
+  // paradas por unidad → para trazar rutas
+  const paradasPorUnidad={};
 
   basePeds.forEach(p=>{
     const uid=p.unidad||'SIN ASIGNAR';
@@ -2404,96 +2448,198 @@ function renderMotorMap(){
     const coords=getCoords(p.distrito);
     if(!coords){sinCoords.add(p.distrito||'(sin distrito)');return;}
     const key=`${p.distrito}||${uid}`;
-    if(!grupos[key])grupos[key]={coords,uid,peds:[]};
+    if(!grupos[key])grupos[key]={coords,uid,peds:[],svgX:0,svgY:0,seq:0};
     grupos[key].peds.push(p);
+    if(!paradasPorUnidad[uid])paradasPorUnidad[uid]=[];
+    // Añadir coord solo si no está ya en la lista de esa unidad (dedup por distrito)
+    const ya=paradasPorUnidad[uid].some(c=>c[0]===coords[0]&&c[1]===coords[1]);
+    if(!ya)paradasPorUnidad[uid].push(coords);
   });
 
+  // Calcular posición SVG con jitter fijo (hash simple del key) para estabilidad
+  function hashJitter(key,range){
+    let h=0;for(let i=0;i<key.length;i++){h=(h*31+key.charCodeAt(i))>>>0;}
+    return ((h%1000)/1000-0.5)*range;
+  }
+  Object.entries(grupos).forEach(([key,gr])=>{
+    const [lat,lng]=gr.coords;
+    const [bx,by]=latLngToSVG(lat,lng);
+    const jx=hashJitter(key+'x',12);
+    const jy=hashJitter(key+'y',12);
+    gr.svgX=Math.max(12,Math.min(SVG_W-12,bx+jx));
+    gr.svgY=Math.max(12,Math.min(SVG_H-12,by+jy));
+  });
+
+  // Ordenar paradas por unidad con nearest-neighbor y calcular km
+  const rutaOrdenada={};  // uid → [{coords,svgX,svgY,key}]
+  const rutaKm={};        // uid → km totales
+
+  Object.entries(paradasPorUnidad).forEach(([uid,paradas])=>{
+    if(uid==='SIN ASIGNAR'||uid===''||uid==='PROVINCIA')return;
+    const ordered=ordenarRuta(paradas);
+    rutaKm[uid]=Math.round(calcRutaKm(ordered));
+    // Mapear orden a grupos
+    rutaOrdenada[uid]=ordered.map((coords,seqIdx)=>{
+      // Buscar el grupo correspondiente a estas coords y uid
+      const entry=Object.entries(grupos).find(([k,gr])=>
+        gr.uid===uid && gr.coords[0]===coords[0] && gr.coords[1]===coords[1]);
+      if(entry){entry[1].seq=seqIdx+1;return entry[1];}
+      return null;
+    }).filter(Boolean);
+  });
+
+  // ── 10. Líneas de ruta (debajo de los puntos) ──
   const tooltip=document.getElementById('map-tooltip');
   const mapDiv=document.getElementById('motor-map');
 
-  // Crear un grupo contenedor para los puntos (arriba de todo)
+  const gLineas=svgEl('g',{id:'map-lineas'});
+  svg.appendChild(gLineas);
+
+  Object.entries(rutaOrdenada).forEach(([uid,paradas])=>{
+    if(paradas.length===0)return;
+    const col=UNIT_COL[uid]||'#9CA3AF';
+    const markerId='arrow-'+uid;
+    const [ax,ay]=latLngToSVG(ALMACEN_LAT,ALMACEN_LNG);
+
+    // almacén → primera parada
+    gLineas.appendChild(svgEl('line',{
+      x1:ax,y1:ay,x2:paradas[0].svgX,y2:paradas[0].svgY,
+      stroke:col,'stroke-width':'1.8','stroke-dasharray':'4,3',
+      opacity:'0.7','marker-end':`url(#${markerId})`
+    }));
+    // parada → parada
+    for(let i=0;i<paradas.length-1;i++){
+      gLineas.appendChild(svgEl('line',{
+        x1:paradas[i].svgX,y1:paradas[i].svgY,
+        x2:paradas[i+1].svgX,y2:paradas[i+1].svgY,
+        stroke:col,'stroke-width':'1.8','stroke-dasharray':'4,3',
+        opacity:'0.7','marker-end':`url(#${markerId})`
+      }));
+    }
+    // última parada → almacén (línea de retorno, más tenue)
+    const last=paradas[paradas.length-1];
+    gLineas.appendChild(svgEl('line',{
+      x1:last.svgX,y1:last.svgY,x2:ax,y2:ay,
+      stroke:col,'stroke-width':'1.2','stroke-dasharray':'2,4',
+      opacity:'0.4','marker-end':`url(#${markerId})`
+    }));
+  });
+
+  // ── 11. Marcador de almacén ──
+  {const [ax,ay]=latLngToSVG(ALMACEN_LAT,ALMACEN_LNG);
+  // Sombra
+  svg.appendChild(svgEl('circle',{cx:ax+1.5,cy:ay+1.5,r:11,fill:'rgba(0,0,0,0.2)'}));
+  // Fondo blanco
+  svg.appendChild(svgEl('circle',{cx:ax,cy:ay,r:11,fill:'white',stroke:'#1E293B','stroke-width':'2'}));
+  // Icono: cuadrado de almacén simplificado
+  svg.appendChild(svgEl('rect',{x:ax-5,y:ay-4,width:10,height:7,rx:1,fill:'#1E293B'}));
+  svg.appendChild(svgEl('polygon',{points:`${ax-7},${ay-4} ${ax},${ay-9} ${ax+7},${ay-4}`,fill:'#374151'}));
+  // Etiqueta
+  const tAlm=svgEl('text',{x:ax+13,y:ay-1,'font-size':'7.5','fill':'#1E293B','font-family':'system-ui,sans-serif','font-weight':'700'});
+  tAlm.textContent='ALMACÉN';
+  svg.appendChild(tAlm);}
+
+  // ── 12. Puntos de pedidos con número de secuencia ──
   const gPuntos=svgEl('g',{id:'map-puntos'});
   svg.appendChild(gPuntos);
-
-  // ── inicio bloque puntos (se actualiza dentro de gPuntos) ──
   const g=gPuntos;
 
   Object.values(grupos).forEach(gr=>{
-    const [lat,lng]=gr.coords;
-    const [bx,by]=latLngToSVG(lat,lng);
-    const jx=(Math.random()-0.5)*10;
-    const jy=(Math.random()-0.5)*10;
-    const x=Math.max(10,Math.min(SVG_W-10,bx+jx));
-    const y=Math.max(10,Math.min(SVG_H-10,by+jy));
-    const r=Math.min(16,7+gr.peds.length*1.8);
-    const col=UNIT_COL[gr.uid]||'#9CA3AF';
+    const {svgX:x,svgY:y,uid,peds,seq}=gr;
+    const r=Math.min(14,8+Math.min(peds.length,4)*1.5);
+    const col=UNIT_COL[uid]||'#9CA3AF';
 
-    // Sombra exterior
-    const shadow=document.createElementNS(ns,'circle');
-    shadow.setAttribute('cx',x+1.5);shadow.setAttribute('cy',y+1.5);shadow.setAttribute('r',r+2);
-    shadow.setAttribute('fill','rgba(0,0,0,0.18)');shadow.setAttribute('pointer-events','none');
+    // Sombra
+    const shadow=svgEl('circle',{cx:x+1.5,cy:y+1.5,r:r+2,fill:'rgba(0,0,0,0.2)'});
+    shadow.setAttribute('pointer-events','none');
     g.appendChild(shadow);
 
     // Anillo blanco
-    const outer=document.createElementNS(ns,'circle');
-    outer.setAttribute('cx',x);outer.setAttribute('cy',y);outer.setAttribute('r',r+2.5);
-    outer.setAttribute('fill','white');outer.setAttribute('stroke',col);outer.setAttribute('stroke-width','1.5');
+    const outer=svgEl('circle',{cx:x,cy:y,r:r+2.5,fill:'white',stroke:col,'stroke-width':'2'});
     g.appendChild(outer);
 
-    // Círculo de color
-    const circle=document.createElementNS(ns,'circle');
-    circle.setAttribute('cx',x);circle.setAttribute('cy',y);circle.setAttribute('r',r);
-    circle.setAttribute('fill',col);circle.setAttribute('cursor','pointer');
+    // Círculo coloreado
+    const circle=svgEl('circle',{cx:x,cy:y,r:r,fill:col,cursor:'pointer'});
 
-    // Label de cantidad
-    if(gr.peds.length>1){
-      const txt=document.createElementNS(ns,'text');
-      txt.setAttribute('x',x);txt.setAttribute('y',y+4);
-      txt.setAttribute('text-anchor','middle');txt.setAttribute('font-size','9');
-      txt.setAttribute('fill','white');txt.setAttribute('font-weight','bold');
-      txt.setAttribute('pointer-events','none');
-      txt.textContent=gr.peds.length;
+    // Número de secuencia (o cantidad si SIN ASIGNAR)
+    const label=seq>0?seq:(peds.length>1?peds.length:'');
+    if(label!==''){
+      const txt=svgEl('text',{x:x,y:y+0.5,
+        'text-anchor':'middle','dominant-baseline':'middle',
+        'font-size': r>=11?'9':'7.5',
+        'fill':'white','font-weight':'700','pointer-events':'none'});
+      txt.textContent=label;
       g.appendChild(txt);
     }
 
-    // Tooltip
-    const tipHtml=`<b style="color:${col}">${gr.uid}</b> · ${gr.peds[0].distrito}<br>`+
-      gr.peds.slice(0,5).map(p=>`• ${p.numero} ${(p.cliente||'').substring(0,22)}`).join('<br>')+
-      (gr.peds.length>5?`<br><i>+${gr.peds.length-5} más...</i>`:'')+
-      `<br><small>${gr.peds.reduce((s,p)=>s+(+p.peso||0),0).toFixed(1)} kg</small>`;
+    // Tooltip enriquecido
+    const kgTotal=peds.reduce((s,p)=>s+(+p.peso||0),0);
+    const tipHtml=`<b style="color:${col}">${uid}${seq>0?' — Parada #'+seq:''}</b><br>`+
+      `<span style="color:#64748b">${peds[0].distrito}</span><br>`+
+      peds.slice(0,6).map(p=>`<span style="font-size:11px">• ${p.numero} ${(p.cliente||'').substring(0,20)}</span>`).join('<br>')+
+      (peds.length>6?`<br><i style="color:#94a3b8">+${peds.length-6} más...</i>`:'')+
+      `<br><small style="color:#94a3b8">${peds.length} ped. · ${kgTotal.toFixed(1)} kg</small>`;
+
     circle.addEventListener('mouseenter',function(e){
       if(!tooltip||!mapDiv)return;
       tooltip.innerHTML=tipHtml;
       tooltip.style.display='block';
       const rect=mapDiv.getBoundingClientRect();
-      let tx=e.clientX-rect.left+14;
-      let ty=e.clientY-rect.top-14;
-      if(tx+240>SVG_W)tx=tx-250;
+      const svgRect=svg.getBoundingClientRect();
+      const scaleX=svgRect.width/SVG_W;
+      let tx=(x+15)*scaleX;
+      let ty=(y-20)*scaleX;
+      if(tx+250>svgRect.width)tx=tx-260;
       if(ty<0)ty=4;
       tooltip.style.left=tx+'px';tooltip.style.top=ty+'px';
     });
     circle.addEventListener('mouseleave',function(){if(tooltip)tooltip.style.display='none';});
     g.appendChild(circle);
+
+    // Re-append txt encima del circle (orden SVG importa)
+    if(label!==''){
+      const txt2=svgEl('text',{x:x,y:y+0.5,
+        'text-anchor':'middle','dominant-baseline':'middle',
+        'font-size':r>=11?'9':'7.5',
+        'fill':'white','font-weight':'700','pointer-events':'none'});
+      txt2.textContent=label;
+      g.appendChild(txt2);
+    }
   });
 
-  // Leyenda dinámica
+  // ── 13. Leyenda lateral enriquecida con km y cantidad de pedidos ──
   const statsEl=document.getElementById('motor-map-stats');
   if(statsEl){
     if(Object.keys(stats).length===0){
       statsEl.innerHTML='<div style="color:#888;font-size:12px;padding:8px">Carga una Base Diaria y presiona "Sugerir" o "Re-asignar todo" para ver los puntos en el mapa.</div>';
     } else {
-      statsEl.innerHTML=Object.entries(stats).sort((a,b)=>b[1].cnt-a[1].cnt).map(([uid,v])=>{
+      statsEl.innerHTML=Object.entries(stats).sort((a,b)=>{
+        // Camiones primero, luego motos, luego sin asignar
+        const ord=uid=>uid.startsWith('C')?0:uid.startsWith('M')?1:2;
+        return ord(a[0])-ord(b[0])||a[0].localeCompare(b[0]);
+      }).map(([uid,v])=>{
         const col=UNIT_COL[uid]||'#9CA3AF';
         const cap=uid.startsWith('C')?getCapCam({id:uid}):{kg:CAP_MOTO_KG,m3:0};
-        const pct=Math.min(100,Math.round(v.kg/cap.kg*100));
-        return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:10px;border-left:4px solid ${col}">
-          <div style="display:flex;align-items:center;justify-content:space-between">
+        const pct=cap.kg>0?Math.min(100,Math.round(v.kg/cap.kg*100)):0;
+        const km=rutaKm[uid]||0;
+        const kmStr=km>0?`${km} km`:'— km';
+        const isCam=uid.startsWith('C');
+        return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:9px 10px;border-left:4px solid ${col};margin-bottom:6px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:4px">
             <span style="font-weight:700;font-size:13px;color:${col}">${uid}</span>
-            <span style="font-size:10px;color:#64748b">${pct}% cap.</span>
+            <span style="font-size:10px;color:#94a3b8">${isCam?'Camión':'Moto'}</span>
           </div>
-          <div style="font-size:11px;color:#64748b;margin:2px 0">${v.cnt} ped. · ${v.kg.toFixed(0)} kg · S/ ${v.val.toLocaleString('es-PE',{maximumFractionDigits:0})}</div>
-          <div style="height:4px;background:#e2e8f0;border-radius:2px;margin-top:4px">
-            <div style="height:4px;width:${pct}%;background:${pct>=90?'#DC2626':pct>=70?'#D97706':col};border-radius:2px;transition:width .3s"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;margin:4px 0">
+            <span style="font-size:11px;color:#374151">📦 ${v.cnt} pedidos</span>
+            <span style="font-size:11px;color:#374151">⚖️ ${v.kg.toFixed(0)} kg</span>
+            <span style="font-size:11px;color:#374151">🛣️ ~${kmStr}</span>
+            <span style="font-size:11px;color:#374151">💰 S/ ${v.val.toLocaleString('es-PE',{maximumFractionDigits:0})}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+            <div style="flex:1;height:5px;background:#e2e8f0;border-radius:3px">
+              <div style="height:5px;width:${pct}%;background:${pct>=90?'#DC2626':pct>=70?'#D97706':col};border-radius:3px;transition:width .4s"></div>
+            </div>
+            <span style="font-size:9px;color:#64748b;white-space:nowrap">${pct}% cap.</span>
           </div>
         </div>`;
       }).join('');
