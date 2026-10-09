@@ -1894,76 +1894,177 @@ function esMoto(prod){
   return false;
 }
 
+// ══════════════════════════════════════════════
+// MOTOR DE ASIGNACIÓN INTELIGENTE
+// Criterios: peso · m³ · zona · tipo producto · capacidad disponible · ventana horaria
+// ══════════════════════════════════════════════
+
+// Capacidad máxima por tipo (se lee de la flota si está definida, sino defaults)
+const CAP_CAM_KG  = 3000;  // 3 ton
+const CAP_CAM_M3  = 18;    // m³ aproximado furgón 3t
+const CAP_MOTO_KG = 60;    // kg máximo por moto
+
+// Umbrales para forzar camión (producto NO puede ir en moto aunque sea liviano)
+const PESO_FUERZA_CAM = 60;   // > 60 kg siempre camión
+const M3_FUERZA_CAM   = 0.08; // > 0.08 m³ siempre camión (~caja grande)
+
+// Zonas que prefieren cada camión cuando hay más de uno
+const ZONA_CAM_PREF = {
+  NORTE:['C1','C2','C3'], SUR:['C2','C1','C3'],
+  ESTE:['C1','C2','C3'],  CALLAO:['C2','C1','C3'],
+  CENTRO:['C1','C2','C3']
+};
+
+function getCapCam(cam){
+  // Si la flota tiene capacidad definida, úsala; si no, default
+  return {kg: (+cam.cap_kg||CAP_CAM_KG), m3: (+cam.cap_m3||CAP_CAM_M3)};
+}
+
 function autoAsig(forzar){
-  const cams=flota.camiones.filter(u=>u.estado==='activa');
-  const mots=flota.motos.filter(u=>u.estado==='activa');
+  const cams = flota.camiones.filter(u=>u.estado==='activa');
+  const mots = flota.motos.filter(u=>u.estado==='activa');
 
-  // Mapa zona → camión para asignación por territorio
-  const zm={};
-  cams.forEach(c=>(c.zona||'').split('/').map(z=>z.trim()).filter(Boolean).forEach(z=>{if(!zm[z])zm[z]=c.id;}));
+  // Acumular carga ya asignada (para no sobrepasar capacidad)
+  const cargaCam = {};
+  const cargaMot = {};
+  cams.forEach(c=>{ cargaCam[c.id]={kg:0,m3:0,cnt:0}; });
+  mots.forEach(m=>{ cargaMot[m.id]={kg:0,cnt:0}; });
 
-  let mi=0,ci=0;
-  const basePeds=ST.pedidos.filter(p=>p.fuente==='BASE'||p.fuente==='MANUAL');
+  const basePeds = ST.pedidos.filter(p=>p.fuente==='BASE'||p.fuente==='MANUAL');
 
-  // "Sugerir (pendientes)": asigna pedidos SIN tipo_asig (recién cargados) o con SIN ASIGNAR
-  //   Respeta los que el usuario asignó manualmente (tipo_asig==='MANUAL')
-  // "Re-asignar todo": re-asigna absolutamente todos sin excepción, borrando asignaciones manuales
+  // Si NO es forzar, pre-cargar lo ya asignado manualmente para respetar capacidad
+  if(!forzar){
+    basePeds.filter(p=>p.tipo_asig==='MANUAL'||p.tipo_asig==='CAMION'||p.tipo_asig==='MOTO').forEach(p=>{
+      if(cargaCam[p.unidad]){
+        cargaCam[p.unidad].kg  += (+p.peso||0);
+        cargaCam[p.unidad].m3  += (+p.m3||0);
+        cargaCam[p.unidad].cnt++;
+      }
+      if(cargaMot[p.unidad]){
+        cargaMot[p.unidad].kg  += (+p.peso||0);
+        cargaMot[p.unidad].cnt++;
+      }
+    });
+  }
+
   const aAsignar = forzar
     ? basePeds
-    : basePeds.filter(p => !p.tipo_asig || p.tipo_asig === 'PROVINCIA' || p.unidad === 'SIN ASIGNAR');
+    : basePeds.filter(p=>!p.tipo_asig||p.tipo_asig==='PROVINCIA'||p.unidad==='SIN ASIGNAR');
 
-  aAsignar.forEach(p=>{
-    // Provincia siempre va a provincia
-    if(p.zona==='PROVINCIA'){p.unidad='PROVINCIA';p.tipo_asig='PROVINCIA';return;}
-
-    const prod=(p.producto||'').toLowerCase();
-    const peso=(+p.peso||0);
-
-    // Lógica de asignación por tipo de producto:
-    // - esMoto: producto pequeño (celular, tablet, etc.) Y peso ≤ 20kg Y hay motos activas
-    // - Si NO es moto explícitamente, va a camión (por defecto)
-    const usaMoto = mots.length > 0 && esMoto(prod) && peso <= 20;
-
-    if(usaMoto){
-      // Distribución round-robin entre motos activas
-      p.unidad = mots[mi % mots.length].id;
-      p.tipo_asig = 'MOTO';
-      mi++;
-    } else {
-      // Buscar camión por zona primero, si no hay → round-robin
-      const camPorZona = zm[p.zona] ? zm[p.zona] : null;
-      if(camPorZona){
-        p.unidad = camPorZona;
-      } else if(cams.length > 0){
-        p.unidad = cams[ci % cams.length].id;
-        ci++;
-      } else {
-        p.unidad = 'SIN ASIGNAR';
-      }
-      p.tipo_asig = 'CAMION';
-    }
-
-    // Asignar vuelta por ventana horaria
-    const v=(p.ventana||'').toLowerCase();
-    if(v.includes('hasta 2pm')||v.includes('hasta 12m')||v.includes('hasta 1pm')||v.includes('hasta 12pm')||v.includes('mañana')||v.includes('manana'))
-      p.vuelta='1ERA VUELTA';
-    else
-      p.vuelta='2DA VUELTA';
+  // Ordenar por prioridad: primero los más pesados/voluminosos (llenan camiones),
+  // luego los livianos (pueden ir a moto). Dentro de cada grupo, por ventana horaria.
+  aAsignar.sort((a,b)=>{
+    const va=(a.ventana||'').toLowerCase();
+    const vb=(b.ventana||'').toLowerCase();
+    const prioA=(va.includes('hasta 12m')||va.includes('hasta 1pm')||va.includes('mañana')||va.includes('manana'))?0:1;
+    const prioB=(vb.includes('hasta 12m')||vb.includes('hasta 1pm')||vb.includes('mañana')||vb.includes('manana'))?0:1;
+    if(prioA!==prioB)return prioA-prioB; // ventana temprana primero
+    return (+b.peso||0)-(+a.peso||0);    // más pesado primero dentro del grupo
   });
 
-  save();
-  renderAll();
-  renderMotorMap();
+  // Índice round-robin (solo se usa cuando no hay criterio mejor)
+  let mi=0, ci=0;
 
+  aAsignar.forEach(p=>{
+    // ── 1. PROVINCIA siempre a courier externo ──
+    if(p.zona==='PROVINCIA'){p.unidad='PROVINCIA';p.tipo_asig='PROVINCIA';_asigVuelta(p);return;}
+
+    const prod  = (p.producto||'').toLowerCase();
+    const peso  = +p.peso||0;
+    const m3    = +p.m3||0;
+
+    // ── 2. ¿Puede ir en moto? ──
+    // Criterios EXCLUYENTES para moto:
+    //  a) Producto es tipo camión (televisor, mueble, etc.)
+    //  b) Peso > PESO_FUERZA_CAM
+    //  c) Volumen > M3_FUERZA_CAM
+    //  d) No hay motos activas
+    const prodEsCamion = CAMION_KW.some(k=>prod.includes(k));
+    const prodEsMoto   = MOTO_KW.some(k=>prod.includes(k));
+    const puedeIrMoto  = mots.length>0
+                      && !prodEsCamion
+                      && peso <= PESO_FUERZA_CAM
+                      && m3   <= M3_FUERZA_CAM
+                      && (prodEsMoto || (peso<=20 && m3<=0.05));
+
+    if(puedeIrMoto){
+      // Elegir la moto con menor carga acumulada y que tenga capacidad disponible
+      const motOrd = mots
+        .filter(m=>cargaMot[m.id].kg+peso<=CAP_MOTO_KG)
+        .sort((a,b)=>cargaMot[a.id].cnt-cargaMot[b.id].cnt);
+
+      if(motOrd.length>0){
+        const m=motOrd[0];
+        p.unidad=m.id; p.tipo_asig='MOTO';
+        cargaMot[m.id].kg+=peso; cargaMot[m.id].cnt++;
+        _asigVuelta(p); return;
+      }
+      // Si todas las motos están llenas → desbordamos a camión (no dejar sin asignar)
+    }
+
+    // ── 3. Asignar a camión ──
+    // Prioridad de elección de camión:
+    //  a) Camión configurado para esa zona (territorial)
+    //  b) Camión con menor % de ocupación en kg y que tenga capacidad
+    //  c) Round-robin de emergencia
+    const zonaPref = ZONA_CAM_PREF[p.zona] || [];
+    const camsCandidatos = cams
+      .filter(c=>{
+        const cap=getCapCam(c);
+        return cargaCam[c.id].kg+peso<=cap.kg && cargaCam[c.id].m3+m3<=cap.m3;
+      })
+      .sort((a,b)=>{
+        // Preferir por zona primero
+        const iA=zonaPref.indexOf(a.id); const iB=zonaPref.indexOf(b.id);
+        const zonaA=iA===-1?99:iA; const zonaB=iB===-1?99:iB;
+        if(zonaA!==zonaB)return zonaA-zonaB;
+        // Luego por menor % de ocupación (kg)
+        const capA=getCapCam(a); const capB=getCapCam(b);
+        return (cargaCam[a.id].kg/capA.kg)-(cargaCam[b.id].kg/capB.kg);
+      });
+
+    if(camsCandidatos.length>0){
+      const c=camsCandidatos[0];
+      p.unidad=c.id; p.tipo_asig='CAMION';
+      cargaCam[c.id].kg+=peso; cargaCam[c.id].m3+=m3; cargaCam[c.id].cnt++;
+    } else if(cams.length>0){
+      // Todos los camiones al límite — round-robin de emergencia con aviso
+      p.unidad=cams[ci%cams.length].id; p.tipo_asig='CAMION';
+      cargaCam[cams[ci%cams.length].id].kg+=peso; ci++;
+    } else {
+      p.unidad='SIN ASIGNAR'; p.tipo_asig=null;
+    }
+    _asigVuelta(p);
+  });
+
+  save(); renderAll(); renderMotorMap();
+
+  // Resumen toast con capacidad
   const nMoto=basePeds.filter(p=>p.tipo_asig==='MOTO').length;
-  const nCam=basePeds.filter(p=>p.tipo_asig==='CAMION').length;
+  const nCam =basePeds.filter(p=>p.tipo_asig==='CAMION').length;
   const nProv=basePeds.filter(p=>p.tipo_asig==='PROVINCIA').length;
-  const nSin=basePeds.filter(p=>!p.tipo_asig||p.unidad==='SIN ASIGNAR').length;
+  const nSin =basePeds.filter(p=>!p.tipo_asig||p.unidad==='SIN ASIGNAR').length;
+
+  // Advertir si algún camión superó el 90% de capacidad
+  const alertas=cams.filter(c=>{
+    const cap=getCapCam(c);
+    return cargaCam[c.id] && cargaCam[c.id].kg/cap.kg>=0.9;
+  }).map(c=>`${c.id} al ${Math.round(cargaCam[c.id].kg/getCapCam(c).kg*100)}%`);
+
   const accion=forzar?'Re-asignación completa':'Sugerencia aplicada';
   let msg=`🤖 ${accion}: ${nCam} camión · ${nMoto} moto`;
   if(nProv>0)msg+=` · ${nProv} prov.`;
-  if(nSin>0)msg+=` · ${nSin} sin asignar`;
+  if(nSin>0)msg+=` · ⚠️ ${nSin} sin asignar`;
   toast(msg,'success');
+  if(alertas.length>0)setTimeout(()=>toast('⚠️ Capacidad alta: '+alertas.join(', '),'warn'),1200);
+}
+
+function _asigVuelta(p){
+  const v=(p.ventana||'').toLowerCase();
+  if(v.includes('hasta 2pm')||v.includes('hasta 12m')||v.includes('hasta 1pm')||v.includes('hasta 12pm')||v.includes('mañana')||v.includes('manana'))
+    p.vuelta='1ERA VUELTA';
+  else
+    p.vuelta='2DA VUELTA';
 }
 
 // ══════════════════════════════════════════════
