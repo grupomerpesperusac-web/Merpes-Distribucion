@@ -319,6 +319,7 @@ tbody td:first-child{padding-left:14px}
   <button class="nav-btn" onclick="showTab('provincias',this)">🌎 Provincias</button>
   <button class="nav-btn" onclick="showTab('rechazos',this)">📉 Rechazos</button>
   <button class="nav-btn" onclick="showTab('kpi',this)">📊 KPI del Día</button>
+  <button class="nav-btn" onclick="showTab('consulta',this)" style="border-bottom-color:#F7941D;color:#F7941D" id="nav-consulta">🔍 Consulta Pedidos</button>
 </nav>
 
 <main class="main">
@@ -752,6 +753,90 @@ tbody td:first-child{padding-left:14px}
   </div>
 </section>
 
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- SECCIÓN: CONSULTA PEDIDOS — Área Comercial             -->
+<!-- ══════════════════════════════════════════════════════ -->
+<section class="sec" id="sec-consulta">
+
+  <!-- Encabezado -->
+  <div style="background:linear-gradient(135deg,#1A56E8 0%,#29ABE2 100%);border-radius:12px;padding:20px 24px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+    <div>
+      <div style="font-size:18px;font-weight:800;color:#fff;margin-bottom:4px">🔍 Consulta de Pedidos</div>
+      <div style="font-size:12px;color:#BFDBFE">Área Comercial — Búsqueda de estado y trazabilidad de pedidos</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:#BFDBFE">
+      <span id="cq-cnt" style="background:rgba(255,255,255,0.2);padding:4px 12px;border-radius:20px;font-weight:600"></span>
+    </div>
+  </div>
+
+  <!-- Barra de búsqueda principal -->
+  <div style="background:#fff;border:2px solid #DBEAFE;border-radius:12px;padding:16px 20px;margin-bottom:16px;box-shadow:0 2px 8px rgba(26,86,232,0.08)">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div style="flex:1;min-width:240px">
+        <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:6px">BUSCAR PEDIDO</label>
+        <div style="position:relative">
+          <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:15px;pointer-events:none">🔍</span>
+          <input id="cq-input" type="text"
+            placeholder="N° pedido, cliente, guía de remisión, producto, distrito..."
+            style="width:100%;padding:10px 12px 10px 38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;box-sizing:border-box;outline:none;transition:border 0.15s"
+            onfocus="this.style.borderColor='#1A56E8'"
+            onblur="this.style.borderColor='#CBD5E1'"
+            oninput="renderConsulta()"
+            onkeydown="if(event.key==='Enter')renderConsulta()">
+        </div>
+      </div>
+
+      <!-- Filtro Estado -->
+      <div style="min-width:160px">
+        <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:6px">ESTADO</label>
+        <select id="cq-estado" onchange="renderConsulta()"
+          style="width:100%;padding:10px 8px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="">Todos los estados</option>
+        </select>
+      </div>
+
+      <!-- Filtro FV -->
+      <div style="min-width:160px">
+        <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:6px">FUERZA DE VENTA</label>
+        <select id="cq-fv" onchange="renderConsulta()"
+          style="width:100%;padding:10px 8px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:12px;background:#fff;cursor:pointer">
+          <option value="">Todas las FV</option>
+        </select>
+      </div>
+
+      <!-- Botón limpiar -->
+      <button onclick="clearConsulta()"
+        style="padding:10px 16px;background:#F1F5F9;border:1.5px solid #CBD5E1;border-radius:8px;font-size:12px;cursor:pointer;font-weight:600;color:#374151;white-space:nowrap"
+        title="Limpiar búsqueda">
+        ✖ Limpiar
+      </button>
+    </div>
+
+    <!-- Leyenda de fuentes -->
+    <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+      <span style="font-size:10px;color:#6B7280;font-weight:600">FUENTES:</span>
+      <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#DBEAFE;color:#1E40AF;font-weight:600">ESPE</span>
+      <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#EDE9FE;color:#5B21B6;font-weight:600">RPTR</span>
+      <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#DCFCE7;color:#166534;font-weight:600">BASE</span>
+      <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#FEF3C7;color:#92400E;font-weight:600">CONF</span>
+      <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#CCFBF1;color:#0F766E;font-weight:600">TRÁNSITO</span>
+      <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#F3E8FF;color:#6B21A8;font-weight:600">MYBEES</span>
+      <span style="font-size:11px;color:#9CA3AF;margin-left:4px">· El pedido puede aparecer en una o más fuentes según su estado de avance</span>
+    </div>
+  </div>
+
+  <!-- Área de resultados -->
+  <div id="cq-results">
+    <div style="text-align:center;padding:60px 20px;color:var(--ink-soft)">
+      <div style="font-size:48px;margin-bottom:12px">🔍</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px">Ingresa un término de búsqueda</div>
+      <div style="font-size:12px">Puedes buscar por N° pedido, nombre de cliente, guía de remisión, producto o distrito</div>
+      <div style="font-size:11px;color:#9CA3AF;margin-top:8px">Asegúrate de haber cargado los archivos en la pestaña 📥 Carga de Datos</div>
+    </div>
+  </div>
+
+</section>
+
 </main>
 
 <div class="pg-footer">Grupo Merpes Perú S.A.C. &nbsp;·&nbsp; Jefatura de Administración y Logística &nbsp;·&nbsp; Lima, Perú</div>
@@ -950,6 +1035,7 @@ function showTab(id,btn){
   if(id==='provincias')renderProvincias();
   if(id==='rechazos')renderRechazos();
   if(id==='motor')initMotorMap();
+  if(id==='consulta'){_populateConsultaFilters();renderConsulta();}
 }
 
 // ══════════════════════════════════════════════
@@ -2523,6 +2609,223 @@ ${fvRows.filter(([,v])=>v.trans>0).sort((a,b)=>b[1].trans-a[1].trans).map(([fv,v
   setTimeout(()=>{w.focus();w.print();},400);
 }
 
+// ══════════════════════════════════════════════════════
+// PESTAÑA CONSULTA PEDIDOS — Área Comercial
+// ══════════════════════════════════════════════════════
+function renderConsulta(){
+  const q=(document.getElementById('cq-input')||{}).value||'';
+  const fEst=document.getElementById('cq-estado')?.value||'';
+  const fFV=document.getElementById('cq-fv')?.value||'';
+  const resultEl=document.getElementById('cq-results');
+  const cntEl=document.getElementById('cq-cnt');
+  if(!resultEl)return;
+
+  // Fuentes disponibles
+  const allPeds=[...ST.pedidos,...(ST.rechazos||[])];
+  const transData=ST.trans_data||[];
+  const espeAll=ST.espe_todos||[];
+
+  if(!q&&!fEst&&!fFV){
+    resultEl.innerHTML=`<div style="text-align:center;padding:60px 20px;color:var(--ink-soft)">
+      <div style="font-size:48px;margin-bottom:12px">🔍</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px">Ingresa un término de búsqueda</div>
+      <div style="font-size:12px">Puedes buscar por N° pedido, nombre de cliente, guía de remisión, producto o distrito</div>
+    </div>`;
+    if(cntEl)cntEl.textContent='';
+    // Poblar filtros de estado y FV con datos disponibles
+    _populateConsultaFilters();
+    return;
+  }
+
+  const ql=q.trim().toLowerCase();
+
+  // Buscar en pedidos (BASE, ESPE, CONF, MANUAL, TRANSITO, MYBEES, RPTR)
+  let matches=allPeds.filter(p=>{
+    const txt=`${p.numero} ${p.cliente} ${p.guia||''} ${p.producto||''} ${p.distrito||''} ${p.fv||''} ${p.nro_guia||''} ${p.serie||''}`.toLowerCase();
+    if(ql&&!txt.includes(ql))return false;
+    if(fEst&&(p.conf_estado||p.estado||'').toUpperCase()!==fEst)return false;
+    if(fFV&&(p.fv||p.canal||'').toUpperCase()!==fFV)return false;
+    return true;
+  });
+
+  // Buscar también en trans_data por número de pedido / guía
+  const transMatches=transData.filter(t=>{
+    const txt=`${t.pedido||t.numero||''} ${t.guia||''} ${t.cliente||''} ${t.placa||''} ${t.chofer||''}`.toLowerCase();
+    return ql&&txt.includes(ql)&&!matches.find(m=>m.numero===(t.pedido||t.numero));
+  });
+
+  // Búsqueda en ESPE por número
+  const espeOnlyMatches=espeAll.filter(e=>{
+    const txt=`${e.numero||''} ${e.cliente||''} ${e.producto||''}`.toLowerCase();
+    return ql&&txt.includes(ql)&&!matches.find(m=>m.numero===e.numero);
+  });
+
+  // Unificar
+  const todosResultados=[
+    ...matches.map(p=>({tipo:'pedido',data:p})),
+    ...transMatches.map(t=>({tipo:'trans',data:t})),
+    ...espeOnlyMatches.map(e=>({tipo:'espe',data:e}))
+  ];
+
+  if(cntEl)cntEl.textContent=todosResultados.length===0?'Sin resultados':`${todosResultados.length} resultado${todosResultados.length!==1?'s':''}`;
+
+  if(todosResultados.length===0){
+    resultEl.innerHTML=`<div style="text-align:center;padding:60px 20px;color:var(--ink-soft)">
+      <div style="font-size:40px;margin-bottom:10px">🤷</div>
+      <div style="font-size:14px;font-weight:600">No se encontraron pedidos</div>
+      <div style="font-size:12px;margin-top:6px">Intenta con el número de pedido, nombre de cliente o número de guía</div>
+    </div>`;
+    return;
+  }
+
+  resultEl.innerHTML=todosResultados.slice(0,50).map(({tipo,data:p})=>{
+    // Cruzar con reporte de tránsito
+    const transRow=transData.find(t=>(t.pedido||t.numero)===p.numero)||(tipo==='trans'?p:null);
+    // Cruzar con ESPE
+    const espeRow=espeAll.find(e=>e.numero===p.numero)||(tipo==='espe'?p:null);
+
+    // Estado y color
+    const estado=(p.conf_estado||p.estado||transRow?.estado||'SIN ESTADO').toUpperCase();
+    const estColor={
+      'ENTREGADO':'#16A34A','ENTREGADA':'#16A34A','ENTREGADOS':'#16A34A',
+      'EN TRANSITO':'#D97706','EN TRÁNSITO':'#D97706','TRANSITO':'#D97706','EN RUTA':'#D97706',
+      'RECHAZO':'#DC2626','RECHAZADO':'#DC2626','NO ENTREGADO':'#DC2626',
+      'CONFIRMADO':'#1A56E8','PENDIENTE':'#6B7280','ANULADO':'#9CA3AF',
+      'SIN ESTADO':'#9CA3AF'
+    };
+    const sc=estColor[estado]||estColor['SIN ESTADO'];
+
+    // Unidad asignada
+    const unidad=p.unidad||transRow?.placa||'—';
+    const chofer=p.chofer||transRow?.chofer||'—';
+
+    // Guías de remisión (puede haber más de una fuente)
+    const guias=[p.guia,p.nro_guia,transRow?.guia,transRow?.nro_guia].filter(Boolean);
+    const guiasUnicas=[...new Set(guias)];
+
+    // Series
+    const series=[p.serie,espeRow?.serie].filter(Boolean);
+    const seriesUnicas=[...new Set(series)];
+
+    // Badges fuentes
+    const fuentes=new Set([p.fuente,tipo==='trans'?'TRÁNSITO':null,tipo==='espe'?'ESPE':null].filter(Boolean));
+    if(transRow&&tipo!=='trans')fuentes.add('TRÁNSITO');
+    if(espeRow&&tipo!=='espe')fuentes.add('ESPE');
+
+    const fuenteColors={ESPE:'#DBEAFE',RPTR:'#EDE9FE',BASE:'#DCFCE7',CONF:'#FEF3C7',
+      TRANSITO:'#CCFBF1','TRÁNSITO':'#CCFBF1',MYBEES:'#F3E8FF',MANUAL:'#F3F4F6'};
+    const fuenteTextColors={ESPE:'#1E40AF',RPTR:'#5B21B6',BASE:'#166534',CONF:'#92400E',
+      TRANSITO:'#0F766E','TRÁNSITO':'#0F766E',MYBEES:'#6B21A8',MANUAL:'#374151'};
+
+    const fuenteBadges=[...fuentes].map(f=>`<span style="font-size:10px;padding:2px 7px;border-radius:8px;background:${fuenteColors[f]||'#F3F4F6'};color:${fuenteTextColors[f]||'#374151'};font-weight:600">${f}</span>`).join(' ');
+
+    // Observación / motivo de rechazo
+    const obs=p.observacion||p.motivo||transRow?.observacion||transRow?.motivo||'';
+
+    return `<div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:16px;margin-bottom:10px;
+      border-left:4px solid ${sc};transition:box-shadow 0.15s" onmouseenter="this.style.boxShadow='0 4px 12px rgba(0,0,0,0.1)'" onmouseleave="this.style.boxShadow='none'">
+
+      <!-- Fila 1: Número + Estado + Fuentes -->
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="font-family:monospace;font-size:15px;font-weight:900;color:#0F1923">📦 ${p.numero||'—'}</span>
+          <span style="background:${sc}18;color:${sc};padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;border:1px solid ${sc}40">${estado}</span>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">${fuenteBadges}</div>
+        </div>
+        ${p.monto||p.precio?`<span style="font-family:monospace;font-size:14px;font-weight:800;color:#1A56E8">S/ ${(+(p.monto||p.precio)||0).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>`:''}
+      </div>
+
+      <!-- Fila 2: Cliente + FV + Zona -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-bottom:10px">
+        <div><span style="font-size:10px;color:#6B7280;display:block;font-weight:600">CLIENTE</span>
+          <span style="font-size:13px;font-weight:700">${p.cliente||'—'}</span></div>
+        ${p.fv||p.canal?`<div><span style="font-size:10px;color:#6B7280;display:block;font-weight:600">FUERZA DE VENTA</span>
+          <span style="font-size:13px">${p.fv||p.canal||'—'}</span></div>`:''}
+        ${p.distrito?`<div><span style="font-size:10px;color:#6B7280;display:block;font-weight:600">DISTRITO</span>
+          <span style="font-size:13px">${p.distrito}</span></div>`:''}
+        ${p.direccion||p.dir?`<div style="grid-column:span 2"><span style="font-size:10px;color:#6B7280;display:block;font-weight:600">DIRECCIÓN</span>
+          <span style="font-size:12px">${p.direccion||p.dir||'—'}</span></div>`:''}
+      </div>
+
+      <!-- Fila 3: Documentos (Guías) -->
+      ${guiasUnicas.length>0?`<div style="background:#F0FDF4;border-radius:8px;padding:10px;margin-bottom:8px;display:flex;align-items:center;flex-wrap:wrap;gap:10px">
+        <span style="font-size:11px;font-weight:700;color:#166534">📋 GUÍA(S) DE REMISIÓN:</span>
+        ${guiasUnicas.map(g=>`<span style="font-family:monospace;font-size:13px;font-weight:800;color:#15803D;background:#DCFCE7;padding:4px 10px;border-radius:8px;border:1px solid #86EFAC">${g}</span>`).join(' ')}
+      </div>`:'<div style="background:#FFF7ED;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:11px;color:#92400E">⚠️ Sin número de guía de remisión registrado</div>'}
+
+      <!-- Fila 4: Trazabilidad de despacho -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:8px">
+        ${unidad&&unidad!=='—'?`<div style="background:#EFF6FF;border-radius:8px;padding:8px"><span style="font-size:10px;color:#1E40AF;display:block;font-weight:600">🚛 UNIDAD ASIGNADA</span>
+          <span style="font-size:13px;font-weight:700;color:#1A56E8">${unidad}</span></div>`:''}
+        ${chofer&&chofer!=='—'?`<div style="background:#EFF6FF;border-radius:8px;padding:8px"><span style="font-size:10px;color:#1E40AF;display:block;font-weight:600">👤 CHOFER / MOTO</span>
+          <span style="font-size:12px;font-weight:600">${chofer}</span></div>`:''}
+        ${p.vuelta?`<div style="background:#F5F3FF;border-radius:8px;padding:8px"><span style="font-size:10px;color:#5B21B6;display:block;font-weight:600">🔄 VUELTA</span>
+          <span style="font-size:12px;font-weight:600;color:#7C3AED">${p.vuelta}</span></div>`:''}
+        ${p.ventana?`<div style="background:#FFFBEB;border-radius:8px;padding:8px"><span style="font-size:10px;color:#92400E;display:block;font-weight:600">⏰ VENTANA HORARIA</span>
+          <span style="font-size:12px">${p.ventana}</span></div>`:''}
+      </div>
+
+      <!-- Fila 5: Producto + Series + Peso -->
+      ${p.producto||p.und||p.peso?`<div style="background:#F8FAFC;border-radius:8px;padding:10px;margin-bottom:8px">
+        <span style="font-size:10px;color:#6B7280;font-weight:600;display:block;margin-bottom:4px">PRODUCTO / ITEMS</span>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
+          ${p.producto?`<span style="font-size:12px">${p.producto}</span>`:''}
+          ${p.und?`<span style="font-size:11px;background:#E5E7EB;padding:2px 8px;border-radius:6px">${p.und} und.</span>`:''}
+          ${p.peso?`<span style="font-size:11px;background:#E5E7EB;padding:2px 8px;border-radius:6px">${(+p.peso||0).toFixed(1)} kg</span>`:''}
+          ${seriesUnicas.length>0?`<span style="font-family:monospace;font-size:11px;background:#DBEAFE;color:#1E40AF;padding:2px 8px;border-radius:6px;font-weight:600">Serie: ${seriesUnicas.join(' / ')}</span>`:''}
+        </div>
+      </div>`:''}
+
+      <!-- Fila 6: Observación / motivo rechazo -->
+      ${obs?`<div style="background:#FEF2F2;border-radius:8px;padding:8px 12px;font-size:11px;color:#991B1B;margin-bottom:8px">
+        <strong>Observación:</strong> ${obs}
+      </div>`:''}
+
+      <!-- Fila 7: Teléfono + fecha -->
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:11px;color:#6B7280">
+        ${p.tel?`<span>📞 ${p.tel}</span>`:''}
+        ${p.fecha_pedido||p.fecha?`<span>📅 Pedido: ${p.fecha_pedido||p.fecha}</span>`:''}
+        ${transRow?.fecha_entrega||p.fecha_entrega?`<span>✅ Entregado: ${transRow?.fecha_entrega||p.fecha_entrega}</span>`:''}
+        ${transRow?.hora_entrega||p.hora_entrega?`<span>🕐 Hora: ${transRow?.hora_entrega||p.hora_entrega}</span>`:''}
+      </div>
+    </div>`;
+  }).join('');
+
+  if(todosResultados.length>50){
+    resultEl.innerHTML+=`<div style="text-align:center;padding:12px;color:var(--ink-soft);font-size:12px">
+      Mostrando 50 de ${todosResultados.length} resultados. Afina la búsqueda para ver menos resultados.
+    </div>`;
+  }
+}
+
+function _populateConsultaFilters(){
+  const allPeds=[...ST.pedidos,...(ST.rechazos||[])];
+
+  // Estados únicos
+  const estEl=document.getElementById('cq-estado');
+  if(estEl&&estEl.options.length<=1){
+    const estados=[...new Set(allPeds.map(p=>(p.conf_estado||p.estado||'').toUpperCase()).filter(Boolean))].sort();
+    estados.forEach(e=>{const o=document.createElement('option');o.value=e;o.textContent=e;estEl.appendChild(o);});
+  }
+
+  // FVs únicas
+  const fvEl=document.getElementById('cq-fv');
+  if(fvEl&&fvEl.options.length<=1){
+    const fvs=[...new Set(allPeds.map(p=>(p.fv||p.canal||'').toUpperCase()).filter(Boolean))].sort();
+    fvs.forEach(f=>{const o=document.createElement('option');o.value=f;o.textContent=f;fvEl.appendChild(o);});
+  }
+}
+
+function clearConsulta(){
+  const inp=document.getElementById('cq-input');
+  const estEl=document.getElementById('cq-estado');
+  const fvEl=document.getElementById('cq-fv');
+  if(inp){inp.value='';}
+  if(estEl){estEl.value='';}
+  if(fvEl){fvEl.value='';}
+  renderConsulta();
+}
+
 // Toast
 let _tt;
 function toast(msg,t='info'){
@@ -2537,6 +2840,7 @@ function renderAll(){
   try{renderProvincias();}catch(e){console.error('renderProvincias error:',e);}
   try{renderFlota();}catch(e){console.error('renderFlota error:',e);}
   try{renderKpi();}catch(e){console.error('renderKpi error:',e);}
+  try{_populateConsultaFilters();}catch(e){}
   // Actualizar badge de fecha en header
   try{
     const hd=document.getElementById('hdr-date');
