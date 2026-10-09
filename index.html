@@ -513,6 +513,27 @@ tbody td:first-child{padding-left:14px}
       </div>
     </div>
 
+    <!-- 7. REPORTE DOCS RELACIONADOS SIG -->
+    <div class="card">
+      <div class="ch" style="background:#FFF7ED;border-left:4px solid #EA580C;border-radius:8px 8px 0 0">
+        <div>
+          <div class="ct" style="color:#EA580C">⑦ Docs Relacionados (SIG)</div>
+          <div style="font-size:11px;color:#3D5166;margin-top:2px">Boletas · Facturas · Notas de Crédito · GRs vinculadas al pedido</div>
+        </div>
+        <span id="docs-c" style="font-size:11px;color:var(--ink-soft);white-space:nowrap">Sin datos</span>
+      </div>
+      <div class="cb">
+        <div class="resp-badge">📋 Fuente: SIG · Documentos Relacionados</div>
+        <div class="iz" id="iz-docs" onclick="document.getElementById('fi-docs').click()"
+          ondragover="dov(event,'iz-docs')" ondragleave="dlv('iz-docs')" ondrop="drp(event,'docs')">
+          <div class="iz-icon">📄</div><div class="iz-title">Soltar Reporte Docs Relacionados aquí</div>
+          <div class="iz-sub">XLSX — Boletas, Facturas, Guías de Remisión vinculadas por pedido y SKU</div>
+        </div>
+        <input type="file" id="fi-docs" style="display:none" accept=".xlsx,.xls,.csv,.tsv" onchange="lf(event,'docs')">
+        <div id="msg-docs"></div>
+      </div>
+    </div>
+
   </div><!-- /import-grid -->
 
   <!-- Estado integración -->
@@ -821,6 +842,7 @@ tbody td:first-child{padding-left:14px}
       <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#FEF3C7;color:#92400E;font-weight:600">CONF</span>
       <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#CCFBF1;color:#0F766E;font-weight:600">TRÁNSITO</span>
       <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#F3E8FF;color:#6B21A8;font-weight:600">MYBEES</span>
+      <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#FFEDD5;color:#C2410C;font-weight:600">DOCS SIG</span>
       <span style="font-size:11px;color:#9CA3AF;margin-left:4px">· El pedido puede aparecer en una o más fuentes según su estado de avance</span>
     </div>
   </div>
@@ -862,7 +884,7 @@ const LIMA=['LIMA','CALLAO'];
 // ══════════════════════════════════════════════
 // ESTADO GLOBAL
 // ══════════════════════════════════════════════
-let ST={pedidos:[],rechazos:[],espe_todos:[],trans_data:[],kpi:{},cargados:{espe:0,rptr:0,base:0,conf:0,trans:0,myb:0}};
+let ST={pedidos:[],rechazos:[],espe_todos:[],trans_data:[],docs_relac:[],kpi:{},cargados:{espe:0,rptr:0,base:0,conf:0,trans:0,myb:0,docs:0}};
 let editIdx=null;
 let nextCid=4, nextMid=5;
 const MOTOR_PG_SIZE=100; // filas por página en el motor de rutas
@@ -911,6 +933,9 @@ function tryLogin() {
 function doLogin(rol) {
   ROL = rol;
   try{ const s=localStorage.getItem('mrp_st2'); if(s) ST=Object.assign(ST,JSON.parse(s)); }catch(e){}
+  if(!ST.docs_relac) ST.docs_relac=[];
+  if(!ST.cargados) ST.cargados={espe:0,rptr:0,base:0,conf:0,trans:0,myb:0,docs:0};
+  if(ST.cargados.docs===undefined) ST.cargados.docs=0;
   try{ const f=localStorage.getItem('mrp_fl2'); if(f) flota=JSON.parse(f); }catch(e){}
   try{ GS_URL = localStorage.getItem('mrp_gs_url') || ''; }catch(e){}
   document.getElementById('login_screen').style.display = 'none';
@@ -1283,6 +1308,7 @@ function lfo(f,t){
         else if(t==='conf')pConf(rows);
         else if(t==='trans')pTrans(rows);
         else if(t==='myb') pMyb(rows);
+        else if(t==='docs') pDocsRelac(rows);
       }catch(err){
         console.error('[lfo xlsx] Error:',err);
         smsg(t,'error','Error leyendo Excel: '+err.message);
@@ -1340,6 +1366,7 @@ function csv(txt,t){
   else if(t==='conf')pConf(rows);
   else if(t==='trans')pTrans(rows);
   else if(t==='myb')pMyb(rows);
+  else if(t==='docs')pDocsRelac(rows);
 }
 
 // --- ESPE ---
@@ -1400,16 +1427,21 @@ function pR(rows){
       if(pd&&!ex.peso){ex.peso=pd.p*und;ex.m3=pd.m*und;}
       if(!ex.placa)ex.placa=r['placa']||'';
       if(!ex.fuerza_venta){ex.fuerza_venta=(r['fuerza']||r['fuerza de venta']||r['fuerza_de_venta']||'').toUpperCase();}
+      if(!ex.serie_guia){ex.serie_guia=(r['serie guia']||r['serie_guia']||'').toString().trim();}
+      if(!ex.nro_guia){ex.nro_guia=(r['n° guia']||r['nro guia']||r['numero guia']||r['n° guía']||'').toString().trim();}
       n++;
     } else {
       const d=(r['distrito']||'').toUpperCase();const dp=(r['departamento']||'LIMA').toUpperCase();
+      const serieG=(r['serie guia']||r['serie_guia']||'').toString().trim();
+      const nroG=(r['n° guia']||r['nro guia']||r['numero guia']||r['n° guía']||'').toString().trim();
       ST.pedidos.push(mkP({numero:num,canal:r['p. emis']||'',
         fuerza_venta:(r['fuerza']||r['fuerza de venta']||r['fuerza_de_venta']||'').toUpperCase(),
         cliente:r['cliente']||'',
         tel:r['telefono']||'',distrito:d,depto:dp,
         dir:r['dirección entrega']||r['direccion entrega']||r['dirección cliente']||'',
         producto:prod,sku,und,peso:pd?pd.p*und:0,m3:pd?pd.m*und:0,
-        precio:parseFloat(r['precio de venta totales']||0),fuente:'RPTR'}));n++;
+        precio:parseFloat(r['precio de venta totales']||0),
+        serie_guia:serieG,nro_guia:nroG,fuente:'RPTR'}));n++;
     }
   });
   ST.cargados.rptr=n;
@@ -1582,6 +1614,71 @@ function pMyb(rows){
   save();renderAll();renderIntStatus();
 }
 
+// --- DOCS RELACIONADOS SIG ---
+// Estructura: Cm | F.Contab | P.Emis | Numero | Ruc | Nombres | Codigo | Descripcion | Unidades | Relacion | Cm | F.Contab | P.Emis | Numero
+// Las primeras 4 cols = documento origen (boleta, factura, nota crédito)
+// Las últimas 4 cols = documento relacionado (GR o viceversa)
+function pDocsRelac(rows){
+  ST.docs_relac=[];
+  let n=0;
+  rows.forEach(r=>{
+    // Normalizador de keys sin tildes
+    const g=k=>{
+      const cn=s=>s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,' ').trim();
+      const t=cn(k);
+      for(const key of Object.keys(r)){if(cn(key)===t)return r[key];}
+      return '';
+    };
+    // El campo "Numero" (cuarta col) es el número de pedido (order number del doc origen)
+    // pero en realidad la estructura es dual, necesitamos leer por posición
+    const keys=Object.keys(r);
+    if(keys.length<4)return;
+    // Intentar mapeo por nombre de columna primero
+    const fContabOrig=g('f.contab')||g('f contab')||g('fecha contab')||'';
+    const pEmisOrig=(g('p.emis')||g('p emis')||'').toString().trim();
+    const nroOrig=(g('numero')||g('número')||'').toString().trim();
+    const cmOrig=g('cm')||'';
+    const ruc=g('ruc')||'';
+    const clienteDoc=g('nombres/razón social')||g('nombres/razon social')||g('cliente')||'';
+    const sku=g('codigo')||g('código')||'';
+    const desc=g('descripcion')||g('descripción')||'';
+    const unds=parseFloat(g('unidades')||1)||1;
+    // Para las cols duplicadas (Cm, F.Contab, P.Emis, Numero del doc relacionado)
+    // usamos posición porque SheetJS las renombra Cm_1, F.Contab_1, etc.
+    const cmRel=r[keys.find(k=>k.toLowerCase().includes('cm')&&k!==keys[0])]||
+                r['cm_1']||r['cm 1']||'';
+    const fContabRel=r[keys.find(k=>k.toLowerCase().includes('f.contab')&&k!==keys[1])]||
+                     r['f.contab_1']||r['f contab_1']||'';
+    const pEmisRel=(r[keys.find(k=>k.toLowerCase().includes('p.emis')&&k!==keys[2])]||
+                    r['p.emis_1']||r['p emis_1']||'').toString().trim();
+    const nroRel=(r[keys.find(k=>k.toLowerCase().includes('numero')&&k!==keys[3])]||
+                  r['numero_1']||r['número_1']||'').toString().trim();
+    if(!nroOrig&&!nroRel)return;
+    // Determinar tipo de documento desde P.Emis
+    const tipoDoc=pem=>{
+      if(!pem)return'OTRO';
+      const p=pem.toString().toUpperCase();
+      if(p.startsWith('BK'))return'BOLETA';
+      if(p.startsWith('NP'))return'FACTURA/NP';
+      if(p.startsWith('NC'))return'NOTA CRÉDITO';
+      if(p.match(/^\d{2}-T\d{3}/))return'GR';
+      return p;
+    };
+    ST.docs_relac.push({
+      pedido_numero:nroOrig,
+      sku,desc,unds,
+      ruc,cliente_doc:clienteDoc,
+      f_contab_orig:fContabOrig,pemis_orig:pEmisOrig,nro_orig:nroOrig,tipo_orig:tipoDoc(pEmisOrig),cm_orig:cmOrig,
+      f_contab_rel:fContabRel,pemis_rel:pEmisRel,nro_rel:nroRel,tipo_rel:tipoDoc(pEmisRel),cm_rel:cmRel
+    });
+    n++;
+  });
+  ST.cargados.docs=n;
+  if(document.getElementById('docs-c'))document.getElementById('docs-c').textContent=n+' registros';
+  smsg('docs','ok','✅ '+n+' documentos relacionados integrados');
+  save();renderAll();renderIntStatus();
+}
+
 // --- Status integración ---
 const REPORTE_INFO=[
   {k:'espe',lbl:'① ESPE',resp:'Facturación',ico:'📋',color:'#1A56E8'},
@@ -1590,6 +1687,7 @@ const REPORTE_INFO=[
   {k:'conf',lbl:'④ Confirmaciones',resp:'H. Nizama',ico:'📞',color:'#C2410C'},
   {k:'trans',lbl:'⑤ Tránsito',resp:'C. Revilla',ico:'🚚',color:'#0D9488'},
   {k:'myb',lbl:'⑥ Mybees',resp:'O. Benavides',ico:'🐝',color:'#9333EA'},
+  {k:'docs',lbl:'⑦ Docs SIG',resp:'SIG',ico:'📄',color:'#EA580C'},
 ];
 function renderIntStatus(){
   document.getElementById('int-status').innerHTML=REPORTE_INFO.map(r=>{
@@ -2641,10 +2739,10 @@ function renderConsulta(){
 
   // Buscar en pedidos (BASE, ESPE, CONF, MANUAL, TRANSITO, MYBEES, RPTR)
   let matches=allPeds.filter(p=>{
-    const txt=`${p.numero} ${p.cliente} ${p.guia||''} ${p.producto||''} ${p.distrito||''} ${p.fv||''} ${p.nro_guia||''} ${p.serie||''}`.toLowerCase();
+    const txt=`${p.numero} ${p.cliente} ${p.guia||''} ${p.producto||''} ${p.distrito||''} ${p.fuerza_venta||p.fv||p.canal||''} ${p.nro_guia||''} ${p.serie||''} ${p.serie_guia||''} ${p.transporte||''}`.toLowerCase();
     if(ql&&!txt.includes(ql))return false;
     if(fEst&&(p.conf_estado||p.estado||'').toUpperCase()!==fEst)return false;
-    if(fFV&&(p.fv||p.canal||'').toUpperCase()!==fFV)return false;
+    if(fFV&&(p.fuerza_venta||p.fv||p.canal||'').toUpperCase()!==fFV)return false;
     return true;
   });
 
@@ -2700,8 +2798,26 @@ function renderConsulta(){
     const chofer=p.chofer||transRow?.chofer||'—';
 
     // Guías de remisión (puede haber más de una fuente)
-    const guias=[p.guia,p.nro_guia,transRow?.guia,transRow?.nro_guia].filter(Boolean);
-    const guiasUnicas=[...new Set(guias)];
+    // RPTR: serie_guia + nro_guia  |  MyBees/ESPE: guia  |  Tránsito: guia/nro_guia
+    const grParts=[];
+    if(p.serie_guia&&p.nro_guia) grParts.push(`${p.serie_guia}-${p.nro_guia}`);
+    else if(p.nro_guia) grParts.push(p.nro_guia);
+    if(p.guia&&!grParts.includes(p.guia)) grParts.push(p.guia);
+    if(transRow?.guia&&!grParts.includes(transRow.guia)) grParts.push(transRow.guia);
+    if(transRow?.nro_guia&&!grParts.includes(transRow.nro_guia)) grParts.push(transRow.nro_guia);
+    // También desde docs_relac: buscar GRs vinculadas al pedido
+    const docsDelPedido=(ST.docs_relac||[]).filter(d=>d.pedido_numero===p.numero);
+    docsDelPedido.forEach(d=>{
+      if(d.tipo_rel==='GR'&&d.pemis_rel&&d.nro_rel){
+        const grKey=`${d.pemis_rel}-${d.nro_rel}`;
+        if(!grParts.includes(grKey))grParts.push(grKey);
+      }
+      if(d.tipo_orig==='GR'&&d.pemis_orig&&d.nro_orig){
+        const grKey=`${d.pemis_orig}-${d.nro_orig}`;
+        if(!grParts.includes(grKey))grParts.push(grKey);
+      }
+    });
+    const guiasUnicas=[...new Set(grParts.filter(Boolean))];
 
     // Series
     const series=[p.serie,espeRow?.serie].filter(Boolean);
@@ -2739,8 +2855,8 @@ function renderConsulta(){
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-bottom:10px">
         <div><span style="font-size:10px;color:#6B7280;display:block;font-weight:600">CLIENTE</span>
           <span style="font-size:13px;font-weight:700">${p.cliente||'—'}</span></div>
-        ${p.fv||p.canal?`<div><span style="font-size:10px;color:#6B7280;display:block;font-weight:600">FUERZA DE VENTA</span>
-          <span style="font-size:13px">${p.fv||p.canal||'—'}</span></div>`:''}
+        ${(p.fuerza_venta||p.fv||p.canal)?`<div><span style="font-size:10px;color:#6B7280;display:block;font-weight:600">FUERZA DE VENTA</span>
+          <span style="font-size:13px">${p.fuerza_venta||p.fv||p.canal||'—'}</span></div>`:''}
         ${p.distrito?`<div><span style="font-size:10px;color:#6B7280;display:block;font-weight:600">DISTRITO</span>
           <span style="font-size:13px">${p.distrito}</span></div>`:''}
         ${p.direccion||p.dir?`<div style="grid-column:span 2"><span style="font-size:10px;color:#6B7280;display:block;font-weight:600">DIRECCIÓN</span>
@@ -2755,14 +2871,21 @@ function renderConsulta(){
 
       <!-- Fila 4: Trazabilidad de despacho -->
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:8px">
-        ${unidad&&unidad!=='—'?`<div style="background:#EFF6FF;border-radius:8px;padding:8px"><span style="font-size:10px;color:#1E40AF;display:block;font-weight:600">🚛 UNIDAD ASIGNADA</span>
-          <span style="font-size:13px;font-weight:700;color:#1A56E8">${unidad}</span></div>`:''}
+        ${(()=>{
+          // Unidad: puede ser Merpes (vehículo propio) o transportista externo
+          const esExterno=p.transporte&&p.transporte!==''&&(p.unidad==='SIN ASIGNAR'||!p.unidad||p.unidad==='—');
+          const esPropio=unidad&&unidad!=='—'&&unidad!=='SIN ASIGNAR';
+          if(esExterno){
+            return `<div style="background:#FFF7ED;border-radius:8px;padding:8px;border:1px solid #FED7AA"><span style="font-size:10px;color:#C2410C;display:block;font-weight:600">🚚 TRANSPORTISTA EXTERNO</span>
+              <span style="font-size:13px;font-weight:700;color:#EA580C">${p.transporte}</span></div>`;
+          } else if(esPropio){
+            return `<div style="background:#EFF6FF;border-radius:8px;padding:8px"><span style="font-size:10px;color:#1E40AF;display:block;font-weight:600">🚛 UNIDAD MERPES</span>
+              <span style="font-size:13px;font-weight:700;color:#1A56E8">${unidad}</span></div>`;
+          }
+          return '';
+        })()}
         ${chofer&&chofer!=='—'?`<div style="background:#EFF6FF;border-radius:8px;padding:8px"><span style="font-size:10px;color:#1E40AF;display:block;font-weight:600">👤 CHOFER / MOTO</span>
           <span style="font-size:12px;font-weight:600">${chofer}</span></div>`:''}
-        ${p.vuelta?`<div style="background:#F5F3FF;border-radius:8px;padding:8px"><span style="font-size:10px;color:#5B21B6;display:block;font-weight:600">🔄 VUELTA</span>
-          <span style="font-size:12px;font-weight:600;color:#7C3AED">${p.vuelta}</span></div>`:''}
-        ${p.ventana?`<div style="background:#FFFBEB;border-radius:8px;padding:8px"><span style="font-size:10px;color:#92400E;display:block;font-weight:600">⏰ VENTANA HORARIA</span>
-          <span style="font-size:12px">${p.ventana}</span></div>`:''}
       </div>
 
       <!-- Fila 5: Producto + Series + Peso -->
@@ -2781,7 +2904,56 @@ function renderConsulta(){
         <strong>Observación:</strong> ${obs}
       </div>`:''}
 
-      <!-- Fila 7: Teléfono + fecha -->
+      <!-- Fila 7: Documentos del cliente (Boletas, Facturas, NC, GRs) desde DOCS_RELAC -->
+      ${(()=>{
+        if(!docsDelPedido||docsDelPedido.length===0)return'';
+        // Ordenar por f_contab_orig (fecha contable)
+        const sorted=[...docsDelPedido].sort((a,b)=>{
+          const fa=parseInt(a.f_contab_orig||a.f_contab_rel||0);
+          const fb=parseInt(b.f_contab_orig||b.f_contab_rel||0);
+          return fa-fb;
+        });
+        const tipoColor={
+          'BOLETA':'#DCFCE7|#166534','FACTURA/NP':'#DBEAFE|#1E40AF',
+          'NOTA CRÉDITO':'#FEF3C7|#92400E','GR':'#CCFBF1|#0F766E','OTRO':'#F3F4F6|#374151'
+        };
+        const rows=sorted.map(d=>{
+          const tc=(tipoColor[d.tipo_orig]||tipoColor['OTRO']).split('|');
+          const tcR=(tipoColor[d.tipo_rel]||tipoColor['OTRO']).split('|');
+          return `<tr style="border-bottom:1px solid #F1F5F9">
+            <td style="padding:5px 8px"><span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:6px;background:${tc[0]};color:${tc[1]}">${d.tipo_orig}</span></td>
+            <td style="padding:5px 8px;font-family:monospace;font-size:11px;color:#374151">${d.pemis_orig||'—'}-${d.nro_orig||'—'}</td>
+            <td style="padding:5px 8px;font-size:11px;color:#6B7280">${d.f_contab_orig||'—'}</td>
+            <td style="padding:5px 8px;font-size:11px">${d.sku||''}</td>
+            <td style="padding:5px 8px;font-size:11px">${d.desc||''}</td>
+            <td style="padding:5px 8px;font-size:11px;text-align:center">${d.unds||''}</td>
+            ${d.pemis_rel?`<td style="padding:5px 8px"><span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:6px;background:${tcR[0]};color:${tcR[1]}">${d.tipo_rel}</span> <span style="font-family:monospace;font-size:11px">${d.pemis_rel}-${d.nro_rel}</span></td>`:'<td></td>'}
+          </tr>`;
+        }).join('');
+        return `<div style="margin-bottom:8px;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden">
+          <div style="background:#F8FAFC;padding:8px 12px;border-bottom:1px solid #E2E8F0;display:flex;align-items:center;gap:6px">
+            <span style="font-size:13px">📑</span>
+            <span style="font-size:11px;font-weight:700;color:#374151">DOCUMENTOS DEL CLIENTE</span>
+            <span style="font-size:10px;background:#E5E7EB;padding:1px 7px;border-radius:8px;color:#6B7280">${sorted.length}</span>
+          </div>
+          <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:11px">
+              <thead><tr style="background:#F8FAFC">
+                <th style="padding:5px 8px;text-align:left;color:#6B7280;font-size:10px;font-weight:600">TIPO</th>
+                <th style="padding:5px 8px;text-align:left;color:#6B7280;font-size:10px;font-weight:600">SERIE-NÚMERO</th>
+                <th style="padding:5px 8px;text-align:left;color:#6B7280;font-size:10px;font-weight:600">F. CONTAB.</th>
+                <th style="padding:5px 8px;text-align:left;color:#6B7280;font-size:10px;font-weight:600">SKU</th>
+                <th style="padding:5px 8px;text-align:left;color:#6B7280;font-size:10px;font-weight:600">DESCRIPCIÓN</th>
+                <th style="padding:5px 8px;text-align:center;color:#6B7280;font-size:10px;font-weight:600">UND</th>
+                <th style="padding:5px 8px;text-align:left;color:#6B7280;font-size:10px;font-weight:600">DOC. RELACIONADO</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>`;
+      })()}
+
+      <!-- Fila 8: Teléfono + fecha -->
       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:11px;color:#6B7280">
         ${p.tel?`<span>📞 ${p.tel}</span>`:''}
         ${p.fecha_pedido||p.fecha?`<span>📅 Pedido: ${p.fecha_pedido||p.fecha}</span>`:''}
@@ -2808,10 +2980,10 @@ function _populateConsultaFilters(){
     estados.forEach(e=>{const o=document.createElement('option');o.value=e;o.textContent=e;estEl.appendChild(o);});
   }
 
-  // FVs únicas
+  // FVs únicas — prioriza fuerza_venta (del RPTR col F), luego fv, luego canal
   const fvEl=document.getElementById('cq-fv');
   if(fvEl&&fvEl.options.length<=1){
-    const fvs=[...new Set(allPeds.map(p=>(p.fv||p.canal||'').toUpperCase()).filter(Boolean))].sort();
+    const fvs=[...new Set(allPeds.map(p=>(p.fuerza_venta||p.fv||p.canal||'').toUpperCase()).filter(Boolean))].sort();
     fvs.forEach(f=>{const o=document.createElement('option');o.value=f;o.textContent=f;fvEl.appendChild(o);});
   }
 }
