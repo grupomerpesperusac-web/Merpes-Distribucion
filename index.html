@@ -276,6 +276,8 @@ tbody td:first-child{padding-left:14px}
 </style>
 <!-- SheetJS para leer archivos .xlsx directamente sin exportar a CSV -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- QRCode.js para generación de códigos QR en hojas de ruta -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <!-- Mapa SVG inline — sin dependencias externas -->
 </head>
 <body>
@@ -771,6 +773,40 @@ tbody td:first-child{padding-left:14px}
 </section>
 
 <!-- ══════════════════════════════════════════════════════ -->
+<!-- PESTAÑA: PRE-PICKING                                   -->
+<!-- ══════════════════════════════════════════════════════ -->
+<section class="sec" id="sec-picking">
+  <div style="background:linear-gradient(135deg,#059669 0%,#10B981 100%);border-radius:12px;padding:20px 24px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+    <div>
+      <div style="font-size:18px;font-weight:800;color:#fff;margin-bottom:4px">📱 Pre-Picking — Escaneo de Series e IMEI</div>
+      <div style="font-size:12px;color:#D1FAE5">Pistoleado de códigos por unidad antes de despacho. Solo productos que requieren número de serie.</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span id="pick-cnt-badge" style="background:rgba(255,255,255,0.25);padding:4px 14px;border-radius:20px;font-size:12px;font-weight:700;color:#fff">0 GRs</span>
+    </div>
+  </div>
+
+  <!-- Selector de unidad -->
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
+    <label style="font-size:12px;font-weight:700;color:#374151">UNIDAD:</label>
+    <div id="pick-unit-btns" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+    <button onclick="savePicking()" style="margin-left:auto;background:#059669;color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:12px;font-weight:700;cursor:pointer">💾 Guardar Picking</button>
+    <button onclick="exportPickingJSON()" style="background:#0D9488;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer">📤 Exportar JSON</button>
+  </div>
+
+  <!-- Estado del scanning -->
+  <div id="pick-status-bar" style="background:#F0FDF4;border:1.5px solid #A7F3D0;border-radius:10px;padding:10px 16px;margin-bottom:14px;display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:#065F46">
+    <span>🔍 <strong id="pick-unidad-label">—</strong></span>
+    <span>📦 GRs: <strong id="pick-gr-count">0</strong></span>
+    <span>✅ Series completas: <strong id="pick-series-ok">0</strong></span>
+    <span>⏳ Pendientes: <strong id="pick-series-pend">0</strong></span>
+  </div>
+
+  <!-- Contenedor principal de GRs -->
+  <div id="pick-cont"></div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
 <!-- SECCIÓN: CONSULTA PEDIDOS — Área Comercial             -->
 <!-- ══════════════════════════════════════════════════════ -->
 <section class="sec" id="sec-consulta">
@@ -928,12 +964,23 @@ function tryLogin() {
 
 function doLogin(rol) {
   ROL = rol;
-  try{ const s=localStorage.getItem('mrp_st2'); if(s) ST=Object.assign(ST,JSON.parse(s)); }catch(e){}
+  let localRestored=false;
+  try{
+    const s=localStorage.getItem('mrp_st2');
+    if(s){
+      const parsed=JSON.parse(s);
+      ST=Object.assign(ST,parsed);
+      localRestored=(ST.pedidos&&ST.pedidos.length>0)||(ST.espe_todos&&ST.espe_todos.length>0);
+    }
+  }catch(e){}
   if(!ST.docs_relac) ST.docs_relac=[];
+  if(!ST.series_picking) ST.series_picking=[];
   if(!ST.cargados) ST.cargados={espe:0,rptr:0,base:0,conf:0,trans:0,myb:0,docs:0};
   if(ST.cargados.docs===undefined) ST.cargados.docs=0;
   try{ const f=localStorage.getItem('mrp_fl2'); if(f) flota=JSON.parse(f); }catch(e){}
   try{ GS_URL = localStorage.getItem('mrp_gs_url') || ''; }catch(e){}
+  // Indicador de sincronización: verde si hay datos locales, negro solo si no hay nada
+  if(localRestored) setSyncStatus('ok','Datos locales restaurados ✓ ('+((ST.pedidos||[]).length)+' pedidos)');
   document.getElementById('login_screen').style.display = 'none';
   const chip = document.getElementById('user_chip');
   if (chip) { chip.textContent = ROLES[rol].label; chip.style.background = ROLES[rol].color; }
@@ -1044,7 +1091,14 @@ document.addEventListener('DOMContentLoaded',()=>{
 });
 
 function save(){
-  try{localStorage.setItem('mrp_st2',JSON.stringify(ST));localStorage.setItem('mrp_fl2',JSON.stringify(flota));}catch(e){}
+  try{
+    localStorage.setItem('mrp_st2',JSON.stringify(ST));
+    localStorage.setItem('mrp_fl2',JSON.stringify(flota));
+    localStorage.setItem('mrp_saved_ts',Date.now());
+    setSyncStatus('ok','Guardado localmente ✓ — '+new Date().toLocaleTimeString('es-PE'));
+  }catch(e){
+    setSyncStatus('err','Error al guardar localmente: '+e.message);
+  }
 }
 
 function showTab(id,btn){
@@ -1057,6 +1111,7 @@ function showTab(id,btn){
   if(id==='rechazos')renderRechazos();
   if(id==='motor')initMotorMap();
   if(id==='consulta'){_populateConsultaFilters();renderConsulta();}
+  if(id==='picking')renderPicking();
 }
 
 // ══════════════════════════════════════════════
@@ -2036,6 +2091,35 @@ function autoAsig(forzar){
     _asigVuelta(p);
   });
 
+  // ── POST-PASS: Consolidar pedidos del mismo cliente en la unidad más grande ──
+  // Si un cliente tiene pedidos en camión Y moto → todo va al camión
+  // Si tiene pedidos en múltiples camiones → va al camión con mayor capacidad
+  const UNIT_RANK = u => {
+    if(!u||u==='SIN ASIGNAR'||u==='PROVINCIA')return -1;
+    if(u.startsWith('C'))return 100+(parseInt(u.slice(1))||0);
+    return 10+(parseInt(u.slice(1))||0);
+  };
+  const clienteMap={};
+  basePeds.forEach(p=>{
+    if(!p.cliente)return;
+    const key=(p.cliente||'').trim().toUpperCase();
+    if(!clienteMap[key])clienteMap[key]={rank:-1,unidad:null};
+    const r=UNIT_RANK(p.unidad);
+    if(r>clienteMap[key].rank){clienteMap[key].rank=r;clienteMap[key].unidad=p.unidad;}
+  });
+  let consolidados=0;
+  basePeds.forEach(p=>{
+    if(!p.cliente)return;
+    const key=(p.cliente||'').trim().toUpperCase();
+    const target=clienteMap[key];
+    if(target&&target.unidad&&p.unidad!==target.unidad){
+      p.unidad=target.unidad;
+      p.tipo_asig=target.unidad.startsWith('C')?'CAMION':'MOTO';
+      consolidados++;
+    }
+  });
+  if(consolidados>0)setTimeout(()=>toast(`🔀 ${consolidados} pedidos consolidados por cliente (misma unidad)`, 'warn'),1600);
+
   save(); renderAll(); renderMotorMap();
 
   // Resumen toast con capacidad
@@ -2734,18 +2818,36 @@ function renderRutas(){
       </div>
       <div class="tb-wrap"><table>
         <thead><tr>
-          ${['Ord','Vuelta','Zona','Distrito','N° Pedido','Cliente','Teléfono','Ventana','Producto','Und','Kg','S/.','Dirección','Estado Entrega','Obs. Chofer']
+          ${['Ord','Vuelta','Zona','Distrito','N° Pedido','N° Guía GR','QR','Cliente','Teléfono','Ventana','Producto','Und','Kg','S/.','Dirección','Estado Entrega','Obs. Chofer']
             .map(h=>`<th style="background:${co};color:#fff">${h}</th>`).join('')}
         </tr></thead>
         <tbody>${peds.map((p,i)=>{
           const bg=p.vuelta==='1ERA VUELTA'?'#FFFBEB':'#ECFEFF';
           const zc=p.zona.replace(/[^A-Z]/g,'');
+          // Guía de Remisión: preferir serie_guia-nro_guia, luego nro_guia, luego guia
+          const grDisplay=p.serie_guia&&p.nro_guia?`${p.serie_guia}-${p.nro_guia}`:(p.nro_guia||p.guia||'—');
+          // QR data: JSON con datos de la GR
+          const qrData=JSON.stringify({
+            fecha: new Date().toLocaleDateString('es-PE'),
+            receptor: p.cliente,
+            nro_guia: grDisplay,
+            pedido: p.numero,
+            sku: p.sku||'',
+            producto: p.producto||'',
+            und: p.und||1,
+            serie: p.serie||''
+          });
+          const qrId='qr-'+uid.replace(/\s/g,'')+'-'+i;
           return `<tr style="background:${bg}">
             <td style="font-weight:700;text-align:center">${i+1}</td>
             <td style="font-size:11px;font-weight:700;color:${p.vuelta==='1ERA VUELTA'?'#92400E':'#0E7490'}">${p.vuelta}</td>
             <td><span class="zb z${zc}">${p.zona}</span></td>
             <td style="font-size:12px">${p.distrito}</td>
             <td style="font-family:monospace;font-size:11px;font-weight:700">${p.numero}</td>
+            <td style="font-family:monospace;font-size:11px;font-weight:700;background:#FFF7ED;color:#92400E">${grDisplay}</td>
+            <td style="text-align:center;padding:2px">
+              <div id="${qrId}" data-qr='${qrData.replace(/'/g,"&apos;")}' style="width:48px;height:48px;display:inline-block"></div>
+            </td>
             <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${p.cliente}</td>
             <td style="font-family:monospace;font-size:11px">${p.tel||'—'}</td>
             <td style="font-size:11px">${p.ventana||'—'}</td>
@@ -2765,6 +2867,185 @@ function renderRutas(){
       </table></div>
     </div>`;
   }).join('');
+  // Generar QR para cada div marcado con data-qr
+  setTimeout(()=>{
+    document.querySelectorAll('#rutas-cont div[data-qr]').forEach(div=>{
+      const data=div.getAttribute('data-qr');
+      div.innerHTML=''; // limpiar antes de generar
+      if(typeof QRCode!=='undefined'){
+        try{
+          new QRCode(div,{text:data,width:48,height:48,correctLevel:QRCode.CorrectLevel.M});
+          // QRCode.js agrega img — ajustar tamaño
+          const img=div.querySelector('img');
+          if(img){img.style.width='48px';img.style.height='48px';}
+        }catch(e){
+          // Fallback canvas
+          const cv=document.createElement('canvas');div.appendChild(cv);drawMiniQR(cv,data);
+        }
+      } else {
+        const cv=document.createElement('canvas');div.appendChild(cv);drawMiniQR(cv,data);
+      }
+    });
+  },150);
+}
+
+// Mini-QR fallback usando canvas nativo (dibuja patrón simple con datos codificados)
+function drawMiniQR(canvas,text){
+  const ctx=canvas.getContext('2d');
+  if(!ctx)return;
+  canvas.width=48;canvas.height=48;
+  // Fondo blanco
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,48,48);
+  // Patrón de módulos simple basado en hash del texto (representación visual)
+  ctx.fillStyle='#000';
+  let hash=0;
+  for(let i=0;i<text.length;i++){hash=((hash<<5)-hash)+text.charCodeAt(i);hash|=0;}
+  const modules=7;const size=48/modules;
+  for(let r=0;r<modules;r++)for(let c=0;c<modules;c++){
+    const bit=(hash>>((r*modules+c)%32))&1;
+    if(bit||r===0||r===modules-1||c===0||c===modules-1)
+      ctx.fillRect(c*size+1,r*size+1,size-1,size-1);
+  }
+  // Texto pequeño debajo
+  ctx.fillStyle='#333';ctx.font='5px monospace';
+  ctx.fillText(text.substring(0,8),1,47);
+}
+
+// ══════════════════════════════════════════════
+// PRE-PICKING — Escaneo de series / IMEI
+// ══════════════════════════════════════════════
+
+const REQUIRES_SERIE_KW=['celular','smartphone','tablet','refriger','lavadora','secadora','cocina','horno','televisor','tv ','laptop','notebook','computadora','aire acondicionado','frigobar','congeladora','lavavajilla','impresora','monitor'];
+
+function requiresSerie(producto){
+  if(!producto)return false;
+  const p=producto.toLowerCase();
+  return REQUIRES_SERIE_KW.some(k=>p.includes(k));
+}
+
+let pickingUnitActual='';
+
+function renderPicking(){
+  const contEl=document.getElementById('pick-cont');
+  const badgeEl=document.getElementById('pick-cnt-badge');
+  if(!contEl)return;
+  if(!ST||!ST.pedidos||!ST.pedidos.length){
+    contEl.innerHTML='<div style="text-align:center;padding:40px;color:#6B7280"><p style="font-size:15px">No hay pedidos asignados.</p><p style="font-size:12px">Ejecuta el Motor de Ruteo primero.</p></div>';
+    if(badgeEl)badgeEl.textContent='Sin datos';
+    return;
+  }
+  const uids=getUnitIds().filter(u=>u!=='SIN ASIGNAR'&&u!=='PROVINCIA');
+  if(!pickingUnitActual||!uids.includes(pickingUnitActual))pickingUnitActual=uids[0]||'';
+  const UC_PICK={C1:'#1D4ED8',C2:'#1E40AF',C3:'#6D28D9',M1:'#059669',M2:'#10B981',M3:'#059669',M4:'#059669'};
+  const btnEl=document.getElementById('pick-unit-btns');
+  if(btnEl)btnEl.innerHTML=uids.map(u=>`<button onclick="pickSelectUnit('${u}')" style="background:${u===pickingUnitActual?(UC_PICK[u]||'#374151'):'#F3F4F6'};color:${u===pickingUnitActual?'#fff':'#374151'};border:2px solid ${UC_PICK[u]||'#374151'};border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer">${u}</button>`).join('');
+  const peds=ST.pedidos.filter(p=>p.unidad===pickingUnitActual);
+  const pedsSerie=peds.filter(p=>requiresSerie(p.producto));
+  if(!ST.series_picking)ST.series_picking=[];
+  const seriesPed=pedsSerie.reduce((s,p)=>s+(+p.und||1),0);
+  const seriesEscaneadas=(ST.series_picking.filter(s=>s.unidad===pickingUnitActual)).length;
+  const labelEl=document.getElementById('pick-unidad-label');
+  const grCEl=document.getElementById('pick-gr-count');
+  const okEl=document.getElementById('pick-series-ok');
+  const pendEl=document.getElementById('pick-series-pend');
+  if(labelEl)labelEl.textContent=pickingUnitActual;
+  if(grCEl)grCEl.textContent=peds.length;
+  if(okEl)okEl.textContent=seriesEscaneadas;
+  if(pendEl)pendEl.textContent=Math.max(0,seriesPed-seriesEscaneadas);
+  if(badgeEl)badgeEl.textContent=uids.length+' unidades · '+peds.length+' GRs';
+  if(!peds.length){contEl.innerHTML='<div style="text-align:center;padding:30px;color:#6B7280">Sin pedidos para '+pickingUnitActual+'</div>';return;}
+  const co=UC_PICK[pickingUnitActual]||'#1D4ED8';
+  let html='';
+  peds.forEach((p)=>{
+    const grDisplay=p.serie_guia&&p.nro_guia?`${p.serie_guia}-${p.nro_guia}`:(p.nro_guia||p.guia||'GR '+p.numero);
+    const needsSerie=requiresSerie(p.producto);
+    const qty=+p.und||1;
+    const seriesActuales=(ST.series_picking||[]).filter(s=>s.pedido===p.numero);
+    const completo=needsSerie&&seriesActuales.length>=qty;
+    const borderColor=!needsSerie?'#CBD5E1':completo?'#10B981':'#F59E0B';
+    const bgCard=!needsSerie?'#F9FAFB':completo?'#F0FDF4':'#FFFBEB';
+    html+=`<div style="background:${bgCard};border:2px solid ${borderColor};border-radius:12px;padding:16px;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <div>
+          <div style="font-size:13px;font-weight:800;color:#0F1923">${p.cliente||'—'}</div>
+          <div style="font-size:11px;color:#6B7280;margin-top:2px">📋 GR: <strong style="color:#92400E">${grDisplay}</strong> · Pedido: <strong>${p.numero}</strong></div>
+          <div style="font-size:11px;color:#374151;margin-top:2px">📦 ${p.producto||'—'} <span style="color:#6B7280">× ${qty}</span></div>
+        </div>
+        <div style="text-align:right;font-size:11px">
+          ${!needsSerie?'<span style="background:#E5E7EB;color:#374151;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700">Sin serie requerida</span>':completo?'<span style="background:#D1FAE5;color:#065F46;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700">✅ '+seriesActuales.length+'/'+qty+'</span>':'<span style="background:#FEF3C7;color:#92400E;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700">⏳ '+seriesActuales.length+'/'+qty+'</span>'}
+        </div>
+      </div>`;
+    if(needsSerie){
+      if(seriesActuales.length>0){
+        html+=`<div style="margin-bottom:8px;display:flex;flex-wrap:wrap;gap:4px">`;
+        seriesActuales.forEach((s,si)=>{html+=`<span style="background:#D1FAE5;color:#065F46;font-family:monospace;font-size:11px;padding:3px 10px;border-radius:6px;display:inline-flex;align-items:center;gap:6px">${s.serie}<button onclick="deleteSerie('${p.numero}',${si})" style="background:none;border:none;cursor:pointer;color:#DC2626;font-size:13px;padding:0;line-height:1">×</button></span>`;});
+        html+='</div>';
+      }
+      if(!completo){
+        html+=`<div style="display:flex;gap:8px;align-items:center">
+          <input id="pick-inp-${p.numero}" type="text" placeholder="Escanear IMEI/Serie (Enter para agregar)..." autocomplete="off"
+            style="flex:1;padding:8px 12px;border:2px solid ${co};border-radius:8px;font-size:12px;font-family:monospace;outline:none"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();addSerie('${p.numero}',this.value,${qty});this.value='';this.focus();}">
+          <button onclick="addSerie('${p.numero}',document.getElementById('pick-inp-${p.numero}').value,${qty});document.getElementById('pick-inp-${p.numero}').value='';document.getElementById('pick-inp-${p.numero}').focus()"
+            style="background:${co};color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:12px;cursor:pointer;font-weight:700">➕</button>
+        </div>`;
+      }
+    }
+    html+='</div>';
+  });
+  contEl.innerHTML=html;
+}
+
+function pickSelectUnit(uid){
+  pickingUnitActual=uid;renderPicking();
+  setTimeout(()=>{const f=document.querySelector('#pick-cont input[type="text"]');if(f)f.focus();},100);
+}
+
+function addSerie(nroPedido,serie,cantEsperada){
+  serie=(serie||'').trim();
+  if(!serie){toast('Ingresa un número de serie o IMEI','warn');return;}
+  if(!ST.series_picking)ST.series_picking=[];
+  if(ST.series_picking.some(s=>s.serie===serie&&s.pedido===nroPedido)){toast('⚠️ Serie ya registrada para este pedido','warn');return;}
+  ST.series_picking.push({unidad:pickingUnitActual,pedido:nroPedido,serie:serie,ts:new Date().toISOString()});
+  const p=ST.pedidos.find(x=>x.numero===nroPedido);
+  if(p){if(!p.series_scaneadas)p.series_scaneadas=[];p.series_scaneadas.push(serie);}
+  save();renderPicking();
+  const ct=ST.series_picking.filter(s=>s.pedido===nroPedido).length;
+  if(ct>=cantEsperada)toast('✅ '+nroPedido+' completo ('+ct+'/'+cantEsperada+')','success');
+}
+
+function deleteSerie(nroPedido,idx){
+  if(!ST.series_picking)return;
+  const grupo=ST.series_picking.filter(s=>s.pedido===nroPedido);
+  if(!grupo[idx])return;
+  const serie=grupo[idx].serie;
+  const gi=ST.series_picking.findIndex(s=>s.pedido===nroPedido&&s.serie===serie);
+  if(gi!==-1)ST.series_picking.splice(gi,1);
+  const p=ST.pedidos.find(x=>x.numero===nroPedido);
+  if(p&&p.series_scaneadas){const si=p.series_scaneadas.indexOf(serie);if(si!==-1)p.series_scaneadas.splice(si,1);}
+  save();renderPicking();
+}
+
+function savePicking(){
+  let tot=0,pend=0;
+  getUnitIds().filter(u=>u!=='SIN ASIGNAR'&&u!=='PROVINCIA').forEach(u=>{
+    ST.pedidos.filter(p=>p.unidad===u&&requiresSerie(p.producto)).forEach(p=>{
+      const qty=+p.und||1;const esc=(ST.series_picking||[]).filter(s=>s.pedido===p.numero).length;
+      tot+=qty;pend+=Math.max(0,qty-esc);
+    });
+  });
+  save();
+  if(pend>0)toast(`💾 Guardado. Quedan ${pend}/${tot} series pendientes.`,'warn');
+  else toast('💾 Picking completo ✓ Todas las series registradas.','success');
+}
+
+function exportPickingJSON(){
+  const data={fecha:new Date().toISOString(),unidades:getUnitIds().filter(u=>u!=='SIN ASIGNAR'&&u!=='PROVINCIA').map(u=>({unidad:u,pedidos:ST.pedidos.filter(p=>p.unidad===u).map(p=>({numero:p.numero,cliente:p.cliente,gr:p.serie_guia&&p.nro_guia?`${p.serie_guia}-${p.nro_guia}`:(p.nro_guia||p.guia||''),producto:p.producto,und:p.und||1,series:(ST.series_picking||[]).filter(s=>s.pedido===p.numero).map(s=>s.serie)}))}))};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='picking_merpes_'+new Date().toLocaleDateString('es-PE').replace(/\//g,'-')+'.json';
+  a.click();toast('📤 JSON exportado','success');
 }
 
 // ══════════════════════════════════════════════
