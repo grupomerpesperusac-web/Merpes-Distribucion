@@ -947,7 +947,7 @@ const ROLES = {
 };
 
 let ROL = null;
-let GS_URL = 'https://script.google.com/macros/s/AKfycbxYjbE3-IrueRj4FDm0qA0KeVffK2AYTxm5kVuy4cW5ZrW1t6eeuvx8oc9ky_Gy5llY9A/exec';
+let GS_URL = 'https://script.google.com/macros/s/AKfycbzJ-jFX0_iubeOgdYDIj9KjQ9DCD6fIA1WkNoTVeOllEmqmqwVW5lfQkpkBmihcWmsg8A/exec';
 
 function tryLogin() {
   const rol = document.getElementById('rol_sel').value;
@@ -1017,20 +1017,24 @@ function setSyncStatus(status, msg) {
 async function gsGet() {
   if (!GS_URL) return null;
   try {
-    const r = await fetch(GS_URL + '?action=getAll&t=' + Date.now());
-    return r.ok ? await r.json() : null;
+    const r = await fetch(GS_URL + '?action=load&t=' + Date.now());
+    if (!r.ok) return null;
+    const j = await r.json();
+    return j && j.ok ? j.data : null;
   } catch(e) { return null; }
 }
 
-async function gsPost(id, data) {
+async function gsPost(payload) {
   if (!GS_URL) return false;
   try {
-    const r = await fetch(GS_URL
-      + '?action=save'
-      + '&cod=' + encodeURIComponent(id)
-      + '&data=' + encodeURIComponent(JSON.stringify(data))
-      + '&t=' + Date.now());
-    return r.ok;
+    const r = await fetch(GS_URL + '?action=save&t=' + Date.now(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(payload)
+    });
+    if (!r.ok) return false;
+    const j = await r.json();
+    return j && j.ok;
   } catch(e) { return false; }
 }
 
@@ -1039,15 +1043,17 @@ async function syncNow() {
   setSyncStatus('busy','Sincronizando...');
   const rem = await gsGet();
   if (rem) {
-    let updated = false;
-    Object.entries(rem).forEach(([id, d]) => {
-      const l = ST[id];
-      if (!l || (d.ts && (!l.ts || d.ts > l.ts))) { ST[id] = d; updated = true; }
-    });
-    if (updated) { save(); renderAll(); renderIntStatus(); }
-    setSyncStatus('ok', 'Sync: ' + new Date().toLocaleTimeString());
+    if (rem.ST) { Object.assign(ST, rem.ST); }
+    if (rem.flota) { flota = rem.flota; }
+    if (!ST.series_picking) ST.series_picking = [];
+    try {
+      localStorage.setItem('mrp_st2', JSON.stringify(ST));
+      localStorage.setItem('mrp_fl2', JSON.stringify(flota));
+    } catch(e) {}
+    renderAll(); renderIntStatus();
+    setSyncStatus('ok', '🟢 Sync: ' + new Date().toLocaleTimeString('es-PE'));
   } else {
-    setSyncStatus('err', 'Sin conexión al servidor');
+    setSyncStatus('err', '🔴 Sin conexión al servidor');
   }
 }
 
@@ -1057,7 +1063,7 @@ async function syncInicial() {
   await syncNow();
 }
 
-setInterval(()=>{ if(ROL) syncNow(); }, 30000);
+setInterval(()=>{ if(ROL) syncNow(); }, 60000);
 
 function showConfig() {
   const m = document.getElementById('cfg_modal');
@@ -1091,13 +1097,24 @@ document.addEventListener('DOMContentLoaded',()=>{
 });
 
 function save(){
+  // 1) Guardar en localStorage (siempre, como respaldo offline)
   try{
     localStorage.setItem('mrp_st2',JSON.stringify(ST));
     localStorage.setItem('mrp_fl2',JSON.stringify(flota));
     localStorage.setItem('mrp_saved_ts',Date.now());
-    setSyncStatus('ok','Guardado localmente ✓ — '+new Date().toLocaleTimeString('es-PE'));
-  }catch(e){
-    setSyncStatus('err','Error al guardar localmente: '+e.message);
+  }catch(e){}
+  // 2) Enviar al servidor Google (si hay URL configurada)
+  if(GS_URL){
+    setSyncStatus('busy','Guardando en servidor...');
+    gsPost({ ST: ST, flota: flota, ts: Date.now() }).then(ok=>{
+      if(ok){
+        setSyncStatus('ok','🟢 Guardado en servidor ✓ — '+new Date().toLocaleTimeString('es-PE'));
+      } else {
+        setSyncStatus('err','🔴 Error al guardar en servidor — datos en local');
+      }
+    });
+  } else {
+    setSyncStatus('ok','💾 Guardado localmente ✓ — '+new Date().toLocaleTimeString('es-PE'));
   }
 }
 
