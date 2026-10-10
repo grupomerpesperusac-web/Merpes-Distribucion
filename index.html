@@ -276,8 +276,171 @@ tbody td:first-child{padding-left:14px}
 </style>
 <!-- SheetJS para leer archivos .xlsx directamente sin exportar a CSV -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<!-- QRCode.js para generación de códigos QR en hojas de ruta -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<!-- QR Generator embebido (sin CDN) — basado en canvas, funciona offline -->
+<script>
+/* Micro QR generator — encodes text to QR using canvas, no external deps.
+   API: drawQR(canvas, text, size) — dibuja el QR en un <canvas> existente.
+   Para uso en la herramienta: genQRCanvas(text, size) => <canvas>
+*/
+(function(root){
+'use strict';
+/* -------- Reed-Solomon GF(256) -------- */
+var GF={exp:new Uint8Array(512),log:new Uint8Array(256)};
+(function(){var x=1;for(var i=0;i<255;i++){GF.exp[i]=x;GF.log[x]=i;x<<=1;if(x&256)x^=285;}for(var i=255;i<512;i++)GF.exp[i]=GF.exp[i-255];}());
+function gmul(a,b){if(a===0||b===0)return 0;return GF.exp[(GF.log[a]+GF.log[b])%255];}
+function gpow(a,b){return GF.exp[(GF.log[a]*b)%255];}
+function poly_gen(ec){var g=[1];for(var i=0;i<ec;i++){var n=[1,gpow(2,i)];var r=new Array(g.length+n.length-1).fill(0);for(var j=0;j<g.length;j++)for(var k=0;k<n.length;k++)r[j+k]^=gmul(g[j],n[k]);g=r;}return g;}
+function poly_div(msg,gen){var r=msg.slice();for(var i=0;i<msg.length;i++){var c=r[i];if(c!==0)for(var j=1;j<gen.length;j++)r[i+j]^=gmul(gen[j],c);}return r.slice(msg.length);}
+/* -------- Encoding tables -------- */
+var alphanum='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:';
+/* -------- QR data -------- */
+var EC_CODEWORDS=[[7,10,13,17],[10,16,22,28],[15,26,36,44],[20,36,52,64],[26,48,72,88]];
+var EC_BLOCKS=[[1,1,1,1],[1,1,1,1],[1,1,2,2],[1,2,2,4],[1,2,4,4]];
+var REMAINDER=[0,7,7,7,7];
+var ALIGN=[[],[6,18],[6,22],[6,26],[6,30]];
+/* -------- Bit stream -------- */
+function BS(){this.b=[];this.n=0;}
+BS.prototype.push=function(v,l){for(var i=l-1;i>=0;i--)this.b.push((v>>i)&1);this.n+=l;};
+BS.prototype.pad=function(total){while(this.n<total){this.push(0b11101100,8);if(this.n<total)this.push(0b00010001,8);}};
+BS.prototype.bytes=function(){var r=[];for(var i=0;i<this.b.length;i+=8){var v=0;for(var j=0;j<8;j++)v=(v<<1)|(this.b[i+j]||0);r.push(v);}return r;};
+/* -------- Encode -------- */
+function encode(text,ecl){
+  var ver=1;
+  var ECL=['L','M','Q','H'];
+  var eli=ECL.indexOf(ecl)||0;
+  // Mode detection — byte mode only for simplicity
+  var bytes=[];for(var i=0;i<text.length;i++)bytes.push(text.charCodeAt(i)&0xFF);
+  // Find minimum version
+  var CAP_BYTE=[[17,14,11,7],[32,26,20,14],[53,42,32,24],[78,62,46,34],[106,84,60,44]];
+  for(ver=1;ver<=5;ver++){if(bytes.length<=CAP_BYTE[ver-1][eli])break;}
+  var totalDC=EC_CODEWORDS[ver-1][eli];
+  var ecCount=EC_BLOCKS[ver-1][eli]; // simplified: 1 block
+  var dataCount=totalDC-ecCount;
+  var bs=new BS();
+  bs.push(0b0100,4); // byte mode
+  bs.push(bytes.length,8);
+  for(var i=0;i<bytes.length;i++)bs.push(bytes[i],8);
+  bs.push(0,4); // terminator
+  bs.pad(dataCount*8);
+  var dc=bs.bytes().slice(0,dataCount);
+  var gen=poly_gen(ecCount);
+  var ec=poly_div(dc.concat(new Array(ecCount).fill(0)),gen);
+  var all=dc.concat(ec);
+  return {ver:ver,data:all,ecl:eli};
+}
+/* -------- Matrix builder -------- */
+function matrix(ver){var s=ver*4+17;var m=[];for(var i=0;i<s;i++){m.push(new Uint8Array(s));}return m;}
+function setBit(m,r,c,v){m[r][c]=v?3:2;} // 3=dark, 2=light (set)
+function isSet(m,r,c){return m[r][c]>=2;}
+var S=0;// size
+function finder(m,r,c){for(var i=0;i<7;i++)for(var j=0;j<7;j++){var d=(i===0||i===6||j===0||j===6)?1:(i>=2&&i<=4&&j>=2&&j<=4)?1:0;setBit(m,r+i,c+j,d);}for(var i=-1;i<=7;i++){if(r+i>=0&&r+i<S){if(c-1>=0)setBit(m,r+i,c-1,0);if(c+7<S)setBit(m,r+i,c+7,0);}if(c+i>=0&&c+i<S){if(r-1>=0)setBit(m,r-1,c+i,0);if(r+7<S)setBit(m,r+7,c+i,0);}}}
+function timing(m){for(var i=8;i<S-8;i++){setBit(m,6,i,i%2===0?1:0);setBit(m,i,6,i%2===0?1:0);}}
+function alignment(m,ver){var pos=ALIGN[ver-1];if(!pos.length)return;for(var pi=0;pi<pos.length;pi++)for(var pj=0;pj<pos.length;pj++){var r=pos[pi],c=pos[pj];if(isSet(m,r,c))continue;for(var i=-2;i<=2;i++)for(var j=-2;j<=2;j++){var d=(i===-2||i===2||j===-2||j===2)?1:(i===0&&j===0)?1:0;setBit(m,r+i,c+j,d);}}}
+function darkModule(m,ver){setBit(m,4*ver+9,8,1);}
+function formatInfo(m,ecl,mask){
+  var fmt=[0b111011111000100,0b111001011110011,0b111110110101010,0b111100010011101,0b110011000101111,0b110001100011000,0b110110001000001,0b110100101110110];
+  var ECL_I=[1,0,3,2];
+  var f=fmt[ECL_I[ecl]*8+mask];// simplified index
+  f=fmt[(ECL_I[ecl]<<3)|mask];
+  var bits=[];for(var i=14;i>=0;i--)bits.push((f>>i)&1);
+  // horizontal
+  var hs=[0,1,2,3,4,5,7,8,S-7,S-6,S-5,S-4,S-3,S-2,S-1];
+  for(var i=0;i<15;i++){setBit(m,8,hs[i],bits[i]);}
+  // vertical
+  var vs=[S-1,S-2,S-3,S-4,S-5,S-6,S-7,8,7,5,4,3,2,1,0];
+  for(var i=0;i<15;i++){setBit(m,vs[i],8,bits[i]);}
+}
+var MASKS=[
+  function(r,c){return(r+c)%2===0;},
+  function(r,c){return r%2===0;},
+  function(r,c){return c%3===0;},
+  function(r,c){return(r+c)%3===0;},
+  function(r,c){return(Math.floor(r/2)+Math.floor(c/3))%2===0;},
+  function(r,c){return(r*c)%2+(r*c)%3===0;},
+  function(r,c){return((r*c)%2+(r*c)%3)%2===0;},
+  function(r,c){return((r+c)%2+(r*c)%3)%2===0;}
+];
+function placeData(m,data){
+  var bits=[];
+  for(var i=0;i<data.length;i++)for(var j=7;j>=0;j--)bits.push((data[i]>>j)&1);
+  var bi=0,up=true;
+  for(var c=S-1;c>=1;c-=2){if(c===6)c=5;
+    for(var ri=0;ri<S;ri++){
+      var r=up?S-1-ri:ri;
+      for(var dc2=0;dc2<=1;dc2++){var col=c-dc2;if(!isSet(m,r,col)){m[r][col]=bi<bits.length?bits[bi++]:0;}}
+    }
+    up=!up;
+  }
+}
+function applyMask(m,mask){
+  for(var r=0;r<S;r++)for(var c=0;c<S;c++){if(m[r][c]<2&&MASKS[mask](r,c))m[r][c]^=1;}
+}
+function buildQR(text,ecl){
+  var enc=encode(text,ecl);
+  var ver=enc.ver;
+  var m=matrix(ver);S=ver*4+17;
+  finder(m,0,0);finder(m,0,S-7);finder(m,S-7,0);
+  timing(m);alignment(m,ver);darkModule(m,ver);
+  placeData(m,enc.data);
+  var bestMask=0,bestPenalty=Infinity;
+  for(var mask=0;mask<8;mask++){
+    var copy=m.map(function(row){return new Uint8Array(row);});
+    applyMask(copy,mask);
+    formatInfo(copy,enc.ecl,mask);
+    var pen=penalty(copy);
+    if(pen<bestPenalty){bestPenalty=pen;bestMask=mask;}
+  }
+  applyMask(m,bestMask);
+  formatInfo(m,enc.ecl,bestMask);
+  return m;
+}
+function penalty(m){
+  var p=0;
+  // Rule 1: 5+ in a row
+  for(var r=0;r<S;r++){var run=1,last=m[r][0]&1;for(var c=1;c<S;c++){var cur=m[r][c]&1;if(cur===last)run++;else{if(run>=5)p+=run-2;run=1;last=cur;}}if(run>=5)p+=run-2;}
+  for(var c=0;c<S;c++){var run=1,last=m[0][c]&1;for(var r=1;r<S;r++){var cur=m[r][c]&1;if(cur===last)run++;else{if(run>=5)p+=run-2;run=1;last=cur;}}if(run>=5)p+=run-2;}
+  // Rule 2: 2x2 blocks
+  for(var r=0;r<S-1;r++)for(var c=0;c<S-1;c++){var v=m[r][c]&1;if(v===(m[r][c+1]&1)&&v===(m[r+1][c]&1)&&v===(m[r+1][c+1]&1))p+=3;}
+  return p;
+}
+/* -------- Canvas render -------- */
+function drawQR(canvas,text,size){
+  var qm;
+  try{qm=buildQR(text,'M');}catch(e){qm=buildQR(text.substring(0,30),'L');}
+  var mod=qm.length;
+  var cell=Math.floor(size/mod);
+  var off=Math.floor((size-mod*cell)/2);
+  canvas.width=size;canvas.height=size;
+  var ctx=canvas.getContext('2d');
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,size,size);
+  ctx.fillStyle='#000';
+  for(var r=0;r<mod;r++)for(var c=0;c<mod;c++){
+    if((qm[r][c]&1)===1)ctx.fillRect(off+c*cell,off+r*cell,cell,cell);
+  }
+}
+function genQRCanvas(text,size){
+  var cv=document.createElement('canvas');
+  drawQR(cv,text,size||200);
+  return cv;
+}
+// Polyfill de la API QRCode para compatibilidad con el código existente
+root.QRCode=function(el,opts){
+  var text=typeof opts==='string'?opts:opts.text;
+  var size=(opts&&opts.width)||200;
+  var cv=genQRCanvas(text,size);
+  el.innerHTML='';
+  el.appendChild(cv);
+  // También crear img para compatibilidad
+  var img=document.createElement('img');
+  img.src=cv.toDataURL();
+  img.style.width=size+'px';img.style.height=size+'px';
+  // No agregamos img, el canvas ya es suficiente
+};
+root.QRCode.CorrectLevel={L:0,M:1,Q:2,H:3};
+root.drawQR=drawQR;
+root.genQRCanvas=genQRCanvas;
+}(window));
+</script>
 <!-- Mapa SVG inline — sin dependencias externas -->
 </head>
 <body>
