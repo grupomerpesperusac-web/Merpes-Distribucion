@@ -3983,14 +3983,17 @@ function save(){
 function showTab(id,btn){
   document.querySelectorAll('.sec').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
-  document.getElementById('sec-'+id).classList.add('active');
+  const _s=document.getElementById('sec-'+id);if(_s)_s.classList.add('active');
   if(btn)btn.classList.add('active');
-  if(id==='rutas')renderRutas();
-  if(id==='provincias')renderProvincias();
-  if(id==='rechazos')renderRechazos();
-  if(id==='motor')initMotorMap();
-  if(id==='consulta'){_populateConsultaFilters();renderConsulta();}
-  if(id==='picking')renderPicking();
+  if(id==='rutas')    {try{renderRutas();}catch(e){}}
+  if(id==='provincias'){try{renderProvincias();}catch(e){}}
+  if(id==='rechazos') {try{renderRechazos();}catch(e){}}
+  if(id==='motor')    {try{initMotorMap();}catch(e){}}
+  if(id==='consulta') {try{_populateConsultaFilters();renderConsulta();}catch(e){}}
+  if(id==='picking')  {try{renderPicking();}catch(e){}}
+  if(id==='kpi')         {try{renderKpiComplementarios();}catch(e){}}
+  if(id==='vigilancia')  {try{renderVigilancia();}catch(e){console.warn('vig:',e);}}
+  if(id==='acreditacion'){try{renderAcreditacion();}catch(e){console.warn('acr:',e);}}
 }
 
 // ══════════════════════════════════════════════
@@ -7805,15 +7808,7 @@ function expAcreditacionCSV(){
   toast('📥 CSV de acreditaciones exportado','success');
 }
 
-// Llamar renderVigilancia cuando se entra a la pestaña
-const _origShowTab=showTab;
-function showTab(t,btn){
-  _origShowTab(t,btn);
-  if(t==='vigilancia'){try{renderVigilancia();}catch(e){console.warn('renderVigilancia:',e);}}
-  if(t==='kpi'){try{renderKpiComplementarios();}catch(e){}}
-  if(t==='acreditacion'){try{renderAcreditacion();}catch(e){console.warn('renderAcreditacion:',e);}}
-  if(t==='consulta'){try{_populateConsultaFilters();}catch(e){}}
-}
+// showTab ya incluye todos los módulos — definido arriba en línea ~3983
 </script>
 <!-- CONFIG MODAL -->
 <div id="cfg_modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:8000;align-items:center;justify-content:center;">
