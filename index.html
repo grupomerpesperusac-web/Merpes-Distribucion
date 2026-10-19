@@ -3477,7 +3477,7 @@ if(typeof window !== "undefined") window.qrcode = qrcode;
         <div style="position:relative">
           <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:15px;pointer-events:none">🔍</span>
           <input id="cq-input" type="text"
-            placeholder="N° pedido, cliente, guía de remisión, producto, distrito..."
+            placeholder="N° pedido, DNI, RUC, cliente, guía de remisión, producto, distrito..."
             style="width:100%;padding:10px 12px 10px 38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;box-sizing:border-box;outline:none;transition:border 0.15s"
             onfocus="this.style.borderColor='#1A56E8'"
             onblur="this.style.borderColor='#CBD5E1'"
@@ -3531,11 +3531,226 @@ if(typeof window !== "undefined") window.qrcode = qrcode;
     <div style="text-align:center;padding:60px 20px;color:var(--ink-soft)">
       <div style="font-size:48px;margin-bottom:12px">🔍</div>
       <div style="font-size:15px;font-weight:600;margin-bottom:6px">Ingresa un término de búsqueda</div>
-      <div style="font-size:12px">Puedes buscar por N° pedido, nombre de cliente, guía de remisión, producto o distrito</div>
-      <div style="font-size:11px;color:#9CA3AF;margin-top:8px">Asegúrate de haber cargado los archivos en la pestaña 📥 Carga de Datos</div>
+      <div style="font-size:12px">Puedes buscar por N° pedido, DNI/RUC del cliente, nombre de cliente, guía de remisión, producto o distrito</div>
+      <div style="font-size:11px;color:#9CA3AF;margin-top:6px">Al buscar por DNI o RUC se muestra la <strong>matriz de estados por plataforma</strong> para detectar diferencias entre fuentes</div>
+      <div style="font-size:11px;color:#9CA3AF;margin-top:4px">Asegúrate de haber cargado los archivos en la pestaña 📥 Carga de Datos</div>
     </div>
   </div>
 
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- PESTAÑA: ACREDITACIÓN DE ENTREGAS                      -->
+<!-- ══════════════════════════════════════════════════════ -->
+<section class="sec" id="sec-acreditacion">
+  <!-- Header -->
+  <div style="background:linear-gradient(135deg,#065F46 0%,#059669 100%);border-radius:12px;padding:20px 24px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+    <div>
+      <div style="font-size:18px;font-weight:800;color:#fff;margin-bottom:4px">📸 Acreditación de Entregas</div>
+      <div style="font-size:12px;color:#A7F3D0">Choferes y motorizados documentan cada entrega con evidencia fotográfica · Al confirmar, el estado del pedido cambia a ENTREGADO</div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <div id="acr-resumen-badge" style="background:rgba(255,255,255,0.2);padding:6px 14px;border-radius:20px;font-size:12px;color:#fff;font-weight:700">Cargando...</div>
+      <button onclick="renderAcreditacion()" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:6px 14px;border-radius:8px;font-size:12px;cursor:pointer;font-weight:600">🔄 Actualizar</button>
+      <button onclick="expAcreditacionCSV()" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;padding:6px 14px;border-radius:8px;font-size:12px;cursor:pointer;font-weight:600">📥 Exportar</button>
+    </div>
+  </div>
+
+  <!-- Dashboard de estado (coordinador) -->
+  <div id="acr-dashboard" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:16px"></div>
+
+  <!-- Selector de pedido / unidad para acreditar -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="ch" style="background:#ECFDF5;border-left:4px solid #059669">
+      <span class="ct" style="color:#065F46">🚚 Acreditar Entrega de Pedido</span>
+      <span style="font-size:11px;color:var(--ink-soft)">Selecciona el pedido, sube las fotos requeridas y confirma</span>
+    </div>
+    <div class="cb">
+      <!-- Selector pedido -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:14px">
+        <div>
+          <label style="font-size:10px;font-weight:700;color:#374151;display:block;margin-bottom:5px">PEDIDO A ACREDITAR</label>
+          <select id="acr-pedido-sel" onchange="acreditacionSelPedido(this.value)" style="width:100%;padding:9px;border:1.5px solid #D1D5DB;border-radius:8px;font-size:12px;background:#fff">
+            <option value="">— Selecciona un pedido —</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:10px;font-weight:700;color:#374151;display:block;margin-bottom:5px">O INGRESA N° PEDIDO MANUALMENTE</label>
+          <div style="display:flex;gap:6px">
+            <input id="acr-pedido-manual" type="text" placeholder="N° pedido" style="flex:1;padding:9px;border:1.5px solid #D1D5DB;border-radius:8px;font-size:12px">
+            <button onclick="acreditacionBuscarManual()" style="background:#059669;color:#fff;border:none;border-radius:8px;padding:9px 12px;cursor:pointer;font-size:12px;font-weight:700">🔍</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Info del pedido seleccionado -->
+      <div id="acr-pedido-info" style="display:none;background:#F0FDF4;border:1px solid #86EFAC;border-radius:10px;padding:12px;margin-bottom:14px"></div>
+
+      <!-- Panel de fotos (se activa tras seleccionar pedido) -->
+      <div id="acr-fotos-panel" style="display:none">
+        <div style="font-size:12px;font-weight:700;color:#065F46;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #D1FAE5">
+          📸 EVIDENCIA FOTOGRÁFICA REQUERIDA
+          <span style="font-size:10px;font-weight:400;color:#6B7280;margin-left:8px">Mínimo 4 fotos · Sube desde cámara del celular directamente</span>
+        </div>
+
+        <!-- Grid de tipos de foto -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:14px">
+
+          <!-- Foto 1: Cliente con producto -->
+          <div class="acr-foto-slot" id="acr-slot-cliente_producto">
+            <div style="background:#EFF6FF;border:2px dashed #93C5FD;border-radius:10px;padding:12px;text-align:center">
+              <div style="font-size:24px;margin-bottom:4px">🤝</div>
+              <div style="font-size:11px;font-weight:700;color:#1E40AF">Cliente con Producto</div>
+              <div style="font-size:10px;color:#6B7280;margin-bottom:8px">Foto del cliente recibiendo el producto</div>
+              <label style="cursor:pointer;display:block">
+                <span id="acr-lbl-cliente_producto" style="background:#1A56E8;color:#fff;padding:6px 12px;border-radius:7px;font-size:11px;font-weight:700;display:inline-block">📷 Tomar foto</span>
+                <input type="file" accept="image/*" capture="environment" style="display:none" onchange="acreditacionFoto(this,'cliente_producto')">
+              </label>
+              <div id="acr-prev-cliente_producto" style="margin-top:6px"></div>
+            </div>
+          </div>
+
+          <!-- Foto 2: Producto en caja -->
+          <div class="acr-foto-slot" id="acr-slot-producto_caja">
+            <div style="background:#ECFDF5;border:2px dashed #6EE7B7;border-radius:10px;padding:12px;text-align:center">
+              <div style="font-size:24px;margin-bottom:4px">📦</div>
+              <div style="font-size:11px;font-weight:700;color:#065F46">Producto en Caja</div>
+              <div style="font-size:10px;color:#6B7280;margin-bottom:8px">Caja cerrada antes de entrega</div>
+              <label style="cursor:pointer;display:block">
+                <span id="acr-lbl-producto_caja" style="background:#059669;color:#fff;padding:6px 12px;border-radius:7px;font-size:11px;font-weight:700;display:inline-block">📷 Tomar foto</span>
+                <input type="file" accept="image/*" capture="environment" style="display:none" onchange="acreditacionFoto(this,'producto_caja')">
+              </label>
+              <div id="acr-prev-producto_caja" style="margin-top:6px"></div>
+            </div>
+          </div>
+
+          <!-- Foto 3: Producto fuera de caja -->
+          <div class="acr-foto-slot" id="acr-slot-producto_abierto">
+            <div style="background:#FFFBEB;border:2px dashed #FCD34D;border-radius:10px;padding:12px;text-align:center">
+              <div style="font-size:24px;margin-bottom:4px">🔓</div>
+              <div style="font-size:11px;font-weight:700;color:#92400E">Producto Fuera de Caja</div>
+              <div style="font-size:10px;color:#6B7280;margin-bottom:8px">Producto abierto (puede ser múltiple)</div>
+              <label style="cursor:pointer;display:block">
+                <span id="acr-lbl-producto_abierto" style="background:#D97706;color:#fff;padding:6px 12px;border-radius:7px;font-size:11px;font-weight:700;display:inline-block">📷 Tomar foto</span>
+                <input type="file" accept="image/*" capture="environment" multiple style="display:none" onchange="acreditacionFoto(this,'producto_abierto')">
+              </label>
+              <div id="acr-prev-producto_abierto" style="margin-top:6px"></div>
+            </div>
+          </div>
+
+          <!-- Foto 4: Casa / Dirección -->
+          <div class="acr-foto-slot" id="acr-slot-direccion">
+            <div style="background:#F5F3FF;border:2px dashed #C4B5FD;border-radius:10px;padding:12px;text-align:center">
+              <div style="font-size:24px;margin-bottom:4px">🏠</div>
+              <div style="font-size:11px;font-weight:700;color:#5B21B6">Casa / Dirección</div>
+              <div style="font-size:10px;color:#6B7280;margin-bottom:8px">Foto de la fachada o dirección de entrega</div>
+              <label style="cursor:pointer;display:block">
+                <span id="acr-lbl-direccion" style="background:#7C3AED;color:#fff;padding:6px 12px;border-radius:7px;font-size:11px;font-weight:700;display:inline-block">📷 Tomar foto</span>
+                <input type="file" accept="image/*" capture="environment" style="display:none" onchange="acreditacionFoto(this,'direccion')">
+              </label>
+              <div id="acr-prev-direccion" style="margin-top:6px"></div>
+            </div>
+          </div>
+
+          <!-- Foto 5: Suministro (Calidda) -->
+          <div class="acr-foto-slot" id="acr-slot-suministro">
+            <div style="background:#FFF1F2;border:2px dashed #FCA5A5;border-radius:10px;padding:12px;text-align:center">
+              <div style="font-size:24px;margin-bottom:4px">🔥</div>
+              <div style="font-size:11px;font-weight:700;color:#991B1B">Suministro (Calidda)</div>
+              <div style="font-size:10px;color:#6B7280;margin-bottom:8px">Foto del medidor / instalación de gas</div>
+              <label style="cursor:pointer;display:block">
+                <span id="acr-lbl-suministro" style="background:#DC2626;color:#fff;padding:6px 12px;border-radius:7px;font-size:11px;font-weight:700;display:inline-block">📷 Opcional</span>
+                <input type="file" accept="image/*" capture="environment" style="display:none" onchange="acreditacionFoto(this,'suministro')">
+              </label>
+              <div id="acr-prev-suministro" style="margin-top:6px"></div>
+            </div>
+          </div>
+
+          <!-- Foto 6: DNI del cliente -->
+          <div class="acr-foto-slot" id="acr-slot-dni_cliente">
+            <div style="background:#F0FDFA;border:2px dashed #5EEAD4;border-radius:10px;padding:12px;text-align:center">
+              <div style="font-size:24px;margin-bottom:4px">🪪</div>
+              <div style="font-size:11px;font-weight:700;color:#0F766E">DNI del Cliente</div>
+              <div style="font-size:10px;color:#6B7280;margin-bottom:8px">Foto del documento de identidad del receptor</div>
+              <label style="cursor:pointer;display:block">
+                <span id="acr-lbl-dni_cliente" style="background:#0D9488;color:#fff;padding:6px 12px;border-radius:7px;font-size:11px;font-weight:700;display:inline-block">📷 Tomar foto</span>
+                <input type="file" accept="image/*" capture="environment" style="display:none" onchange="acreditacionFoto(this,'dni_cliente')">
+              </label>
+              <div id="acr-prev-dni_cliente" style="margin-top:6px"></div>
+            </div>
+          </div>
+
+          <!-- Foto 7: GR firmada -->
+          <div class="acr-foto-slot" id="acr-slot-gr_firmada">
+            <div style="background:#EFF6FF;border:2px dashed #93C5FD;border-radius:10px;padding:12px;text-align:center">
+              <div style="font-size:24px;margin-bottom:4px">✍️</div>
+              <div style="font-size:11px;font-weight:700;color:#1E40AF">GR Firmada</div>
+              <div style="font-size:10px;color:#6B7280;margin-bottom:8px">Guía de remisión con firma del cliente</div>
+              <label style="cursor:pointer;display:block">
+                <span id="acr-lbl-gr_firmada" style="background:#1A56E8;color:#fff;padding:6px 12px;border-radius:7px;font-size:11px;font-weight:700;display:inline-block">📷 Tomar foto</span>
+                <input type="file" accept="image/*" capture="environment" style="display:none" onchange="acreditacionFoto(this,'gr_firmada')">
+              </label>
+              <div id="acr-prev-gr_firmada" style="margin-top:6px"></div>
+            </div>
+          </div>
+
+          <!-- Foto 8-10: Adicionales -->
+          <div class="acr-foto-slot" id="acr-slot-adicional">
+            <div style="background:#F9FAFB;border:2px dashed #D1D5DB;border-radius:10px;padding:12px;text-align:center">
+              <div style="font-size:24px;margin-bottom:4px">📷</div>
+              <div style="font-size:11px;font-weight:700;color:#374151">Fotos Adicionales</div>
+              <div style="font-size:10px;color:#6B7280;margin-bottom:8px">Cualquier otra evidencia relevante</div>
+              <label style="cursor:pointer;display:block">
+                <span id="acr-lbl-adicional" style="background:#6B7280;color:#fff;padding:6px 12px;border-radius:7px;font-size:11px;font-weight:700;display:inline-block">📷 Adicionales</span>
+                <input type="file" accept="image/*" capture="environment" multiple style="display:none" onchange="acreditacionFoto(this,'adicional')">
+              </label>
+              <div id="acr-prev-adicional" style="margin-top:6px"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Observaciones adicionales -->
+        <div style="margin-bottom:14px">
+          <label style="font-size:10px;font-weight:700;color:#374151;display:block;margin-bottom:5px">OBSERVACIONES DE LA ENTREGA</label>
+          <textarea id="acr-obs" rows="2" placeholder="Novedades, horario de entrega, nombre del receptor si es diferente al cliente..." style="width:100%;padding:9px;border:1.5px solid #D1D5DB;border-radius:8px;font-size:12px;box-sizing:border-box;resize:vertical"></textarea>
+        </div>
+
+        <!-- Progreso de fotos -->
+        <div id="acr-progreso" style="background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;padding:10px;margin-bottom:12px">
+          <div style="font-size:11px;font-weight:700;color:#065F46;margin-bottom:6px">PROGRESO DE EVIDENCIA</div>
+          <div id="acr-progreso-bar-wrap" style="background:#D1FAE5;border-radius:8px;height:8px;overflow:hidden;margin-bottom:6px">
+            <div id="acr-progreso-bar" style="background:#059669;height:100%;width:0%;transition:width 0.3s;border-radius:8px"></div>
+          </div>
+          <div id="acr-progreso-txt" style="font-size:11px;color:#6B7280">0 de 4 fotos mínimas</div>
+        </div>
+
+        <!-- Botón confirmar entrega -->
+        <button id="acr-btn-confirmar" onclick="confirmarEntregaAcreditada()" style="width:100%;background:#059669;color:#fff;border:none;border-radius:10px;padding:14px;font-size:14px;font-weight:800;cursor:pointer;transition:background 0.2s"
+          onmouseover="this.style.background='#047857'" onmouseout="this.style.background='#059669'">
+          ✅ CONFIRMAR ENTREGA — CAMBIAR ESTADO A ENTREGADO
+        </button>
+        <div style="font-size:10px;color:#6B7280;text-align:center;margin-top:6px">
+          Al confirmar, el estado del pedido cambiará a ENTREGADO y quedará registrado con hora, responsable y evidencia fotográfica
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lista de entregas acreditadas (coordinador) -->
+  <div class="card">
+    <div class="ch" style="background:#ECFDF5;border-left:4px solid #10B981">
+      <span class="ct" style="color:#065F46">📊 Historial de Acreditaciones del Día</span>
+      <span style="font-size:11px;color:var(--ink-soft)">Vista en tiempo real para el coordinador de distribución</span>
+    </div>
+    <div class="cb">
+      <div id="acr-historial" style="font-size:12px">
+        <div style="text-align:center;padding:30px;color:#6B7280">
+          <div style="font-size:36px;margin-bottom:8px">📋</div>
+          <div>Sin acreditaciones registradas aún</div>
+        </div>
+      </div>
+    </div>
+  </div>
 </section>
 
 </main>
@@ -6280,6 +6495,211 @@ ${fvRows.filter(([,v])=>v.trans>0).sort((a,b)=>b[1].trans-a[1].trans).map(([fv,v
 // ══════════════════════════════════════════════════════
 // PESTAÑA CONSULTA PEDIDOS — Área Comercial
 // ══════════════════════════════════════════════════════
+// Detecta si la búsqueda es DNI (8 dígitos) o RUC (11 dígitos) o similar
+function _esDniRuc(q){
+  const s=q.trim().replace(/\D/g,'');
+  return s.length>=8&&s.length<=11&&/^\d+$/.test(s);
+}
+
+// Renderiza la MATRIZ multi-fuente de estados cuando se busca por DNI/RUC
+function _renderMatrizDniRuc(ql,resultEl,cntEl){
+  const allPeds=[...ST.pedidos,...(ST.rechazos||[])];
+  const transData=ST.trans_data||[];
+  const espeAll=ST.espe_todos||[];
+  const mybeesAll=ST.mybees_data||[];
+
+  // Buscar pedidos que coincidan con DNI o RUC en cualquier campo
+  const rucNorm=ql.trim().replace(/\D/g,'');
+  const pedidosDelCliente=[...new Set([
+    ...allPeds.filter(p=>{
+      const rucP=(p.ruc||'').replace(/\D/g,'');
+      const dniP=(p.dni||p.doc||'').replace(/\D/g,'');
+      return rucP===rucNorm||dniP===rucNorm||
+        (p.cliente||'').toLowerCase().includes(ql.trim().toLowerCase());
+    }),
+  ])];
+
+  if(pedidosDelCliente.length===0){
+    resultEl.innerHTML=`<div style="text-align:center;padding:50px 20px;color:var(--ink-soft)">
+      <div style="font-size:36px;margin-bottom:8px">🔎</div>
+      <div style="font-size:14px;font-weight:600">No se encontraron pedidos para el DNI/RUC <strong>${rucNorm}</strong></div>
+      <div style="font-size:12px;margin-top:6px">Verifica que el archivo ESPE haya sido cargado y que el RUC esté registrado</div>
+    </div>`;
+    if(cntEl)cntEl.textContent='Sin resultados';
+    return;
+  }
+
+  // Agrupar por número de pedido
+  const porNumero={};
+  pedidosDelCliente.forEach(p=>{
+    const n=p.numero||p.pedido||'SIN-NRO';
+    if(!porNumero[n])porNumero[n]={numero:n,cliente:p.cliente,ruc:p.ruc||rucNorm,registros:[]};
+    porNumero[n].registros.push(p);
+  });
+
+  // Fuentes definidas
+  const FUENTES=['ESPE','RPTR','BASE','CONF','TRÁNSITO','MYBEES','MANUAL','ACREDITADO'];
+  const fColBg={ESPE:'#DBEAFE',RPTR:'#EDE9FE',BASE:'#DCFCE7',CONF:'#FEF3C7',
+    'TRÁNSITO':'#CCFBF1',MYBEES:'#F3E8FF',MANUAL:'#F3F4F6',ACREDITADO:'#DCFCE7'};
+  const fColTxt={ESPE:'#1E40AF',RPTR:'#5B21B6',BASE:'#166534',CONF:'#92400E',
+    'TRÁNSITO':'#0F766E',MYBEES:'#6B21A8',MANUAL:'#374151',ACREDITADO:'#065F46'};
+
+  const estColors={'ENTREGADO':'#16A34A','ENTREGADA':'#16A34A','EN TRANSITO':'#D97706',
+    'EN TRÁNSITO':'#D97706','TRANSITO':'#D97706','EN RUTA':'#D97706',
+    'RECHAZO':'#DC2626','RECHAZADO':'#DC2626','NO ENTREGADO':'#DC2626',
+    'CONFIRMADO':'#1A56E8','PENDIENTE':'#6B7280','ANULADO':'#9CA3AF','SIN ESTADO':'#9CA3AF'};
+
+  const numeros=Object.keys(porNumero);
+  if(cntEl)cntEl.textContent=`${numeros.length} pedido${numeros.length!==1?'s':''} del cliente`;
+
+  // Cabecera
+  let html=`<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:14px;margin-bottom:14px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-size:20px">🪪</span>
+      <div>
+        <div style="font-size:13px;font-weight:800;color:#1E40AF">Búsqueda por DNI / RUC: <span style="font-family:monospace">${rucNorm}</span></div>
+        <div style="font-size:11px;color:#3B82F6">${pedidosDelCliente[0]?.cliente||'Cliente'} · ${numeros.length} pedido${numeros.length!==1?'s':''} encontrado${numeros.length!==1?'s':''}</div>
+      </div>
+      <div style="margin-left:auto;background:#1A56E8;color:#fff;padding:4px 14px;border-radius:12px;font-size:11px;font-weight:700">VISTA MULTI-PLATAFORMA</div>
+    </div>
+    <div style="font-size:10px;color:#6B7280;margin-top:8px">⚡ Esta vista muestra el estado del pedido en CADA plataforma por separado. Si los estados difieren, el coordinador debe verificar cuál es el estado real.</div>
+  </div>`;
+
+  numeros.forEach(nro=>{
+    const grupo=porNumero[nro];
+    // Reunir todos los estados cruzando todas las fuentes disponibles
+    const estadosPorFuente={};
+
+    // Registros propios
+    grupo.registros.forEach(p=>{
+      const f=(p.fuente||'MANUAL').toUpperCase().replace('TRANSITO','TRÁNSITO');
+      const est=(p.conf_estado||p.estado||'SIN ESTADO').toUpperCase();
+      if(!estadosPorFuente[f])estadosPorFuente[f]={estados:[],raw:[]};
+      if(!estadosPorFuente[f].estados.includes(est))estadosPorFuente[f].estados.push(est);
+      estadosPorFuente[f].raw.push(p);
+    });
+
+    // Cruzar con TRÁNSITO
+    const transRow=(ST.trans_data||[]).find(t=>(t.pedido||t.numero)===nro);
+    if(transRow){
+      const est=(transRow.estado||'SIN ESTADO').toUpperCase();
+      if(!estadosPorFuente['TRÁNSITO'])estadosPorFuente['TRÁNSITO']={estados:[],raw:[]};
+      if(!estadosPorFuente['TRÁNSITO'].estados.includes(est))estadosPorFuente['TRÁNSITO'].estados.push(est);
+      estadosPorFuente['TRÁNSITO'].raw.push(transRow);
+    }
+
+    // Cruzar con ESPE
+    const espeRow=(ST.espe_todos||[]).find(e=>e.numero===nro);
+    if(espeRow&&!estadosPorFuente['ESPE']){
+      const est=(espeRow.estado||'SIN ESTADO').toUpperCase();
+      estadosPorFuente['ESPE']={estados:[est],raw:[espeRow]};
+    }
+
+    // Cruzar con acreditaciones
+    const acrReg=(ST.acreditaciones||[]).find(a=>a.pedido===nro);
+    if(acrReg){
+      estadosPorFuente['ACREDITADO']={estados:['ENTREGADO (ACREDITADO)'],raw:[acrReg]};
+    }
+
+    // Detectar si hay inconsistencias entre fuentes
+    const todosEstados=[...new Set(Object.values(estadosPorFuente).flatMap(v=>v.estados))];
+    const hayInconsistencia=todosEstados.length>1;
+
+    // Estado más reciente / confiable (prioridad: ACREDITADO > TRÁNSITO > CONF > BASE > RPTR > ESPE)
+    const prioridadFuente=['ACREDITADO','TRÁNSITO','CONF','BASE','RPTR','MYBEES','ESPE','MANUAL'];
+    let estadoFinal='SIN ESTADO';
+    for(const f of prioridadFuente){
+      if(estadosPorFuente[f]&&estadosPorFuente[f].estados.length>0){
+        estadoFinal=estadosPorFuente[f].estados[0];break;
+      }
+    }
+
+    const sc=estColors[estadoFinal]||'#9CA3AF';
+    const p0=grupo.registros[0]||{};
+    const unidad=p0.unidad||transRow?.placa||'—';
+    const guia=p0.nro_guia?`${p0.serie_guia||''}-${p0.nro_guia}`:p0.guia||transRow?.guia||'—';
+
+    html+=`<div style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:16px;margin-bottom:12px;
+      border-left:5px solid ${sc}">
+      <!-- Cabecera pedido -->
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="font-family:monospace;font-size:16px;font-weight:900;color:#0F1923">📦 ${nro}</span>
+          <span style="background:${sc}20;color:${sc};padding:3px 12px;border-radius:12px;font-size:11px;font-weight:700;border:1px solid ${sc}40">
+            ${estadoFinal} <span style="font-size:9px;opacity:0.7">(estado más reciente)</span>
+          </span>
+          ${hayInconsistencia?`<span style="background:#FEF3C7;color:#B45309;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;border:1px solid #FCD34D">⚠️ ESTADOS DISTINTOS ENTRE PLATAFORMAS</span>`:'<span style="background:#DCFCE7;color:#166534;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;border:1px solid #86EFAC">✅ Estados consistentes</span>'}
+        </div>
+        ${p0.monto||p0.precio?`<span style="font-family:monospace;font-size:14px;font-weight:800;color:#1A56E8">S/ ${(+(p0.monto||p0.precio)||0).toLocaleString('es-PE',{minimumFractionDigits:2})}</span>`:''}
+      </div>
+
+      <!-- Info básica -->
+      <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:12px;font-size:12px">
+        <div><span style="color:#6B7280;font-size:10px;display:block;font-weight:600">CLIENTE</span><span style="font-weight:700">${grupo.cliente||'—'}</span></div>
+        <div><span style="color:#6B7280;font-size:10px;display:block;font-weight:600">UNIDAD</span><span style="font-weight:600">${unidad}</span></div>
+        <div><span style="color:#6B7280;font-size:10px;display:block;font-weight:600">GUÍA GR</span><span style="font-family:monospace;font-weight:700;color:#15803D">${guia}</span></div>
+        ${p0.producto?`<div><span style="color:#6B7280;font-size:10px;display:block;font-weight:600">PRODUCTO</span><span>${p0.producto}</span></div>`:''}
+        ${p0.distrito||p0.zona?`<div><span style="color:#6B7280;font-size:10px;display:block;font-weight:600">ZONA</span><span>${p0.distrito||p0.zona}</span></div>`:''}
+      </div>
+
+      <!-- MATRIZ DE ESTADOS POR FUENTE -->
+      <div style="background:${hayInconsistencia?'#FFFBEB':'#F8FAFC'};border:1px solid ${hayInconsistencia?'#FCD34D':'#E2E8F0'};border-radius:10px;padding:12px">
+        <div style="font-size:11px;font-weight:700;color:${hayInconsistencia?'#B45309':'#374151'};margin-bottom:8px">
+          ${hayInconsistencia?'⚠️ DIFERENCIAS DETECTADAS — Verificar estado real':'📊'} ESTADO POR PLATAFORMA
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:11px">
+            <thead>
+              <tr style="background:#F1F5F9">
+                <th style="padding:6px 10px;text-align:left;color:#6B7280;font-size:10px;font-weight:700;white-space:nowrap">PLATAFORMA / FUENTE</th>
+                <th style="padding:6px 10px;text-align:left;color:#6B7280;font-size:10px;font-weight:700">ESTADO REGISTRADO</th>
+                <th style="padding:6px 10px;text-align:left;color:#6B7280;font-size:10px;font-weight:700">DETALLE</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${FUENTES.map(f=>{
+                const d=estadosPorFuente[f];
+                if(!d)return`<tr style="border-bottom:1px solid #F1F5F9">
+                  <td style="padding:6px 10px"><span style="padding:2px 8px;border-radius:8px;background:${fColBg[f]||'#F3F4F6'};color:${fColTxt[f]||'#374151'};font-size:10px;font-weight:600">${f}</span></td>
+                  <td style="padding:6px 10px;color:#D1D5DB;font-size:11px;font-style:italic">No registrado en esta plataforma</td>
+                  <td style="padding:6px 10px;color:#D1D5DB;font-size:10px">—</td>
+                </tr>`;
+                const est=d.estados.join(' / ');
+                const estC=estColors[d.estados[0]]||'#9CA3AF';
+                const raw=d.raw[0]||{};
+                const detalle=[
+                  raw.unidad||raw.placa?`Unidad: ${raw.unidad||raw.placa}`:'',
+                  raw.chofer?`Chofer: ${raw.chofer}`:'',
+                  raw.fecha_entrega?`F.Entrega: ${raw.fecha_entrega}`:'',
+                  raw.hora_entrega?`Hora: ${raw.hora_entrega}`:'',
+                  raw.observacion||raw.motivo?`Obs: ${raw.observacion||raw.motivo}`:'',
+                  raw.timestamp?`Confirmado: ${new Date(raw.timestamp).toLocaleString('es-PE')}`:'',
+                ].filter(Boolean).join(' · ');
+                const esDif=hayInconsistencia&&d.estados[0]!==estadoFinal;
+                return`<tr style="border-bottom:1px solid #F1F5F9;background:${esDif?'#FFFBEB':'#fff'}">
+                  <td style="padding:6px 10px">
+                    <span style="padding:2px 8px;border-radius:8px;background:${fColBg[f]||'#F3F4F6'};color:${fColTxt[f]||'#374151'};font-size:10px;font-weight:700">${f}</span>
+                    ${esDif?`<span style="font-size:9px;color:#B45309;margin-left:4px">⚠️ difiere</span>`:''}
+                  </td>
+                  <td style="padding:6px 10px">
+                    <span style="background:${estC}18;color:${estC};padding:2px 10px;border-radius:10px;font-size:11px;font-weight:700;border:1px solid ${estC}40">${est}</span>
+                  </td>
+                  <td style="padding:6px 10px;font-size:10px;color:#6B7280">${detalle||'—'}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+        ${hayInconsistencia?`<div style="background:#FEF3C7;border-radius:8px;padding:8px 12px;margin-top:8px;font-size:11px;color:#92400E">
+          <strong>🔎 Acción sugerida:</strong> Revisar plataforma TRÁNSITO y/o ACREDITACIÓN como fuentes más confiables. Si el pedido fue confirmado en campo con foto, el estado ACREDITADO es definitivo.
+        </div>`:''}
+      </div>
+    </div>`;
+  });
+
+  resultEl.innerHTML=html;
+}
+
 function renderConsulta(){
   const q=(document.getElementById('cq-input')||{}).value||'';
   const fEst=document.getElementById('cq-estado')?.value||'';
@@ -6297,7 +6717,7 @@ function renderConsulta(){
     resultEl.innerHTML=`<div style="text-align:center;padding:60px 20px;color:var(--ink-soft)">
       <div style="font-size:48px;margin-bottom:12px">🔍</div>
       <div style="font-size:15px;font-weight:600;margin-bottom:6px">Ingresa un término de búsqueda</div>
-      <div style="font-size:12px">Puedes buscar por N° pedido, nombre de cliente, guía de remisión, producto o distrito</div>
+      <div style="font-size:12px">Puedes buscar por N° pedido, DNI/RUC del cliente, nombre de cliente, guía de remisión, producto o distrito</div>
     </div>`;
     if(cntEl)cntEl.textContent='';
     // Poblar filtros de estado y FV con datos disponibles
@@ -6307,9 +6727,16 @@ function renderConsulta(){
 
   const ql=q.trim().toLowerCase();
 
+  // ─── MODO DNI/RUC: Mostrar matriz multi-fuente ────────────────────────
+  if(_esDniRuc(q)&&!fEst&&!fFV){
+    _renderMatrizDniRuc(q,resultEl,cntEl);
+    return;
+  }
+
   // Buscar en pedidos (BASE, ESPE, CONF, MANUAL, TRANSITO, MYBEES, RPTR)
   let matches=allPeds.filter(p=>{
-    const txt=`${p.numero} ${p.cliente} ${p.guia||''} ${p.producto||''} ${p.distrito||''} ${p.fuerza_venta||p.fv||p.canal||''} ${p.nro_guia||''} ${p.serie||''} ${p.serie_guia||''} ${p.transporte||''}`.toLowerCase();
+    const rucP=(p.ruc||'').replace(/\D/g,'');
+    const txt=`${p.numero} ${p.cliente} ${p.guia||''} ${p.producto||''} ${p.distrito||''} ${p.fuerza_venta||p.fv||p.canal||''} ${p.nro_guia||''} ${p.serie||''} ${p.serie_guia||''} ${p.transporte||''} ${rucP} ${p.dni||''}`.toLowerCase();
     if(ql&&!txt.includes(ql))return false;
     if(fEst&&(p.conf_estado||p.estado||'').toUpperCase()!==fEst)return false;
     if(fFV&&(p.fuerza_venta||p.fv||p.canal||'').toUpperCase()!==fFV)return false;
@@ -6341,7 +6768,7 @@ function renderConsulta(){
     resultEl.innerHTML=`<div style="text-align:center;padding:60px 20px;color:var(--ink-soft)">
       <div style="font-size:40px;margin-bottom:10px">🤷</div>
       <div style="font-size:14px;font-weight:600">No se encontraron pedidos</div>
-      <div style="font-size:12px;margin-top:6px">Intenta con el número de pedido, nombre de cliente o número de guía</div>
+      <div style="font-size:12px;margin-top:6px">Intenta con el número de pedido, DNI/RUC, nombre de cliente o número de guía</div>
     </div>`;
     return;
   }
@@ -6855,12 +7282,537 @@ function expVigCSV(){
   toast('📥 CSV de Vigilancia exportado','success');
 }
 
+// ══════════════════════════════════════════════════════════════════
+// VIGILANCIA — MEJORAS CON FOTOS
+// ══════════════════════════════════════════════════════════════════
+
+// Previews de fotos para incidencia
+function prevVigIncFotos(input){
+  const prev=document.getElementById('vig-inc-fotos-prev');
+  if(!prev)return;
+  prev.innerHTML='';
+  const files=Array.from(input.files||[]).slice(0,5);
+  files.forEach((f,i)=>{
+    const reader=new FileReader();
+    reader.onload=e=>{
+      const img=document.createElement('img');
+      img.src=e.target.result;
+      img.style.cssText='width:70px;height:70px;object-fit:cover;border-radius:8px;border:2px solid #F59E0B';
+      img.title=f.name;
+      prev.appendChild(img);
+    };
+    reader.readAsDataURL(f);
+  });
+}
+
+// Preview foto devolución
+function prevVigDevFoto(input){
+  const prev=document.getElementById('vig-dev-foto-prev');
+  if(!prev||!input.files[0])return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    prev.innerHTML=`<img src="${e.target.result}" style="width:100px;height:100px;object-fit:cover;border-radius:8px;border:2px solid #DC2626">`;
+  };
+  reader.readAsDataURL(input.files[0]);
+}
+
+// Confirmar incidencia desde formulario nuevo
+function confirmVigIncidencia(){
+  initVig();
+  const unidad=(document.getElementById('vig-inc-unidad')?.value||'').trim();
+  const tipo=document.getElementById('vig-inc-tipo')?.value||'Otro';
+  const desc=(document.getElementById('vig-inc-desc')?.value||'').trim();
+  const pedido=(document.getElementById('vig-inc-pedido')?.value||'').trim();
+  if(!unidad){alert('Indica la unidad afectada');return;}
+  if(!desc){alert('Agrega una descripción de la incidencia');return;}
+
+  // Leer fotos como base64
+  const fotosInput=document.getElementById('vig-inc-fotos');
+  const files=Array.from(fotosInput?.files||[]).slice(0,5);
+  const fecha=new Date().toLocaleString('es-PE');
+
+  const processPhotos=(fotos64)=>{
+    ST.vigilancia.incidencias.push({
+      fecha,unidad:unidad.toUpperCase(),tipo,descripcion:desc,
+      pedido_afectado:pedido,fotos:fotos64
+    });
+    // Limpiar formulario
+    document.getElementById('vig-inc-unidad').value='';
+    document.getElementById('vig-inc-desc').value='';
+    document.getElementById('vig-inc-pedido').value='';
+    if(fotosInput)fotosInput.value='';
+    const prev=document.getElementById('vig-inc-fotos-prev');
+    if(prev)prev.innerHTML='';
+    document.getElementById('vig-inc-form').style.display='none';
+    renderVigilancia();save();
+    toast('⚠️ Incidencia registrada con evidencia','warn');
+  };
+
+  if(files.length===0){processPhotos([]);return;}
+  const fotos64=[];let done=0;
+  files.forEach((f,i)=>{
+    const r=new FileReader();
+    r.onload=e=>{fotos64[i]=e.target.result;done++;if(done===files.length)processPhotos(fotos64);};
+    r.readAsDataURL(f);
+  });
+}
+
+// Confirmar devolución desde formulario
+function confirmVigDevolucion(){
+  initVig();
+  const pedido=(document.getElementById('vig-dev-pedido')?.value||'').trim();
+  const cliente=(document.getElementById('vig-dev-cliente')?.value||'').trim();
+  const producto=(document.getElementById('vig-dev-producto')?.value||'').trim();
+  const motivo=document.getElementById('vig-dev-motivo')?.value||'Otro';
+  const detalle=(document.getElementById('vig-dev-detalle')?.value||'').trim();
+  if(!pedido){alert('Indica el número de pedido');return;}
+
+  const fotoInput=document.getElementById('vig-dev-foto');
+  const fotoFile=fotoInput?.files?.[0];
+  const fecha=new Date().toLocaleString('es-PE');
+
+  const guardar=(foto64)=>{
+    ST.vigilancia.devoluciones.push({
+      fecha,pedido,cliente,producto,motivo,detalle,foto:foto64||null
+    });
+    document.getElementById('vig-dev-pedido').value='';
+    document.getElementById('vig-dev-cliente').value='';
+    document.getElementById('vig-dev-producto').value='';
+    document.getElementById('vig-dev-detalle').value='';
+    if(fotoInput)fotoInput.value='';
+    const prev=document.getElementById('vig-dev-foto-prev');
+    if(prev)prev.innerHTML='';
+    document.getElementById('vig-dev-form').style.display='none';
+    renderVigilancia();save();
+    toast('📦 Devolución registrada','info');
+  };
+
+  if(!fotoFile){guardar(null);return;}
+  const r=new FileReader();
+  r.onload=e=>guardar(e.target.result);
+  r.readAsDataURL(fotoFile);
+}
+
+// Actualizar renderVigilancia para mostrar fotos en incidencias
+const _origRenderVig=typeof renderVigilancia==='function'?renderVigilancia:null;
+function renderVigilancia(){
+  if(!ST.vigilancia)initVig();
+  const vig=ST.vigilancia;
+
+  // Hodómetro
+  const tbody=document.getElementById('vig-hodometro-body');
+  if(tbody){
+    if(!vig.hodometro||vig.hodometro.length===0){
+      tbody.innerHTML=`<tr><td colspan="7" style="padding:16px;text-align:center;color:#9CA3AF;font-size:12px">Sin registros. Agrega unidades con el botón.</td></tr>`;
+    } else {
+      tbody.innerHTML=vig.hodometro.map((h,idx)=>{
+        const km=(+h.km_fin||0)-(+h.km_ini||0);
+        const kmStr=km>0?`<span style="font-weight:800;color:#7C3AED">${km.toFixed(0)} km</span>`:'<span style="color:#9CA3AF">—</span>';
+        return`<tr style="border-bottom:1px solid #F3F4F6">
+          <td style="padding:8px;font-weight:700">${h.unidad||'—'}</td>
+          <td style="padding:8px;text-align:center;font-family:monospace">${h.placa||'—'}</td>
+          <td style="padding:8px;text-align:center"><input type="number" value="${h.km_ini||''}" placeholder="0"
+            style="width:90px;padding:5px;border:1px solid #D1D5DB;border-radius:6px;text-align:center;font-size:12px"
+            onchange="ST.vigilancia.hodometro[${idx}].km_ini=this.value;saveVigilancia()"></td>
+          <td style="padding:8px;text-align:center"><input type="number" value="${h.km_fin||''}" placeholder="0"
+            style="width:90px;padding:5px;border:1px solid #D1D5DB;border-radius:6px;text-align:center;font-size:12px"
+            onchange="ST.vigilancia.hodometro[${idx}].km_fin=this.value;saveVigilancia()"></td>
+          <td style="padding:8px;text-align:center">${kmStr}</td>
+          <td style="padding:8px;text-align:center;font-size:11px">${h.fecha||new Date().toLocaleDateString('es-PE')}</td>
+          <td style="padding:8px"><input type="text" value="${h.obs||''}" placeholder="Observaciones..."
+            style="width:100%;padding:4px 8px;border:1px solid #E5E7EB;border-radius:6px;font-size:11px"
+            onchange="ST.vigilancia.hodometro[${idx}].obs=this.value;save()"></td>
+        </tr>`;
+      }).join('');
+    }
+  }
+
+  // Incidencias con fotos
+  const incEl=document.getElementById('vig-incidencias-list');
+  if(incEl){
+    if(!vig.incidencias||vig.incidencias.length===0){
+      incEl.innerHTML=`<div style="text-align:center;padding:20px;color:#9CA3AF;font-size:12px">Sin incidencias registradas</div>`;
+    } else {
+      incEl.innerHTML=vig.incidencias.map((inc,idx)=>{
+        const fotos=inc.fotos||[];
+        return`<div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:10px;padding:12px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-size:13px">⚠️</span>
+              <span style="font-weight:700;font-size:12px;color:#C2410C">${inc.tipo||'Incidencia'}</span>
+              <span style="background:#FED7AA;color:#B45309;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600">${inc.unidad||'—'}</span>
+              ${inc.pedido_afectado?`<span style="font-size:10px;color:#6B7280">Pedido: ${inc.pedido_afectado}</span>`:''}
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:10px;color:#9CA3AF">${inc.fecha||''}</span>
+              <button onclick="ST.vigilancia.incidencias.splice(${idx},1);renderVigilancia();save();toast('Incidencia eliminada','warn')"
+                style="background:#FEE2E2;color:#DC2626;border:none;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:10px">✖</button>
+            </div>
+          </div>
+          <div style="font-size:12px;color:#374151;margin-bottom:${fotos.length>0?8:0}px">${inc.descripcion||''}</div>
+          ${fotos.length>0?`<div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${fotos.map(f=>`<img src="${f}" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:2px solid #FCD34D;cursor:pointer"
+              onclick="this.style.width=this.style.width==='200px'?'64px':'200px';this.style.height=this.style.height==='200px'?'64px':'200px'"
+              title="Clic para ampliar">`).join('')}
+          </div>`:''}
+        </div>`;
+      }).join('');
+    }
+  }
+
+  // Devoluciones con foto
+  const devEl=document.getElementById('vig-devoluciones-list');
+  if(devEl){
+    if(!vig.devoluciones||vig.devoluciones.length===0){
+      devEl.innerHTML=`<div style="text-align:center;padding:20px;color:#9CA3AF;font-size:12px">Sin devoluciones registradas</div>`;
+    } else {
+      devEl.innerHTML=vig.devoluciones.map((d,idx)=>{
+        return`<div style="background:#FFF1F2;border:1px solid #FCA5A5;border-radius:10px;padding:12px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-size:13px">📦</span>
+              <span style="font-family:monospace;font-weight:800;color:#991B1B">${d.pedido||'—'}</span>
+              <span style="font-weight:600;font-size:12px">${d.cliente||''}</span>
+              <span style="background:#FCA5A5;color:#991B1B;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600">${d.motivo||'—'}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:10px;color:#9CA3AF">${d.fecha||''}</span>
+              <button onclick="ST.vigilancia.devoluciones.splice(${idx},1);renderVigilancia();save();toast('Devolución eliminada','info')"
+                style="background:#FEE2E2;color:#DC2626;border:none;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:10px">✖</button>
+            </div>
+          </div>
+          ${d.producto?`<div style="font-size:11px;color:#6B7280;margin-bottom:4px">Producto: ${d.producto}</div>`:''}
+          ${d.detalle?`<div style="font-size:12px;color:#374151;margin-bottom:6px">${d.detalle}</div>`:''}
+          ${d.foto?`<img src="${d.foto}" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:2px solid #FCA5A5;cursor:pointer"
+            onclick="this.style.width=this.style.width==='200px'?'80px':'200px';this.style.height=this.style.height==='200px'?'80px':'200px'"
+            title="Clic para ampliar">`:''}
+        </div>`;
+      }).join('');
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ACREDITACIÓN DE ENTREGAS
+// ══════════════════════════════════════════════════════════════════
+
+// Estado temporal de la acreditación en curso
+let _acrState={pedido:null,fotos:{}};
+
+function initAcreditacion(){
+  if(!ST.acreditaciones)ST.acreditaciones=[];
+}
+
+function renderAcreditacion(){
+  initAcreditacion();
+  // Poblar selector de pedidos (de BASE DIARIA primero, luego ESPE/RPTR)
+  const sel=document.getElementById('acr-pedido-sel');
+  if(sel){
+    const current=sel.value;
+    sel.innerHTML='<option value="">— Selecciona un pedido —</option>';
+    const pedidos=[...ST.pedidos].filter(p=>{
+      const est=(p.conf_estado||p.estado||'').toUpperCase();
+      return est!=='ENTREGADO'&&est!=='ENTREGADA'&&est!=='ANULADO';
+    }).sort((a,b)=>(a.numero||'').localeCompare(b.numero||''));
+    pedidos.forEach(p=>{
+      const o=document.createElement('option');
+      o.value=p.numero;
+      o.textContent=`${p.numero} — ${p.cliente||''} (${p.unidad||p.placa||'—'})`;
+      sel.appendChild(o);
+    });
+    if(current)sel.value=current;
+  }
+
+  // Dashboard de estado
+  const dash=document.getElementById('acr-dashboard');
+  if(dash){
+    const total=ST.pedidos.filter(p=>p.fuente==='BASE'||p.base_estado).length||ST.pedidos.length;
+    const entregados=ST.acreditaciones.length;
+    const pendientes=Math.max(0,total-entregados);
+    const pct=total>0?Math.round(entregados/total*100):0;
+    dash.innerHTML=[
+      {label:'Total Programados',val:total,color:'#1A56E8',bg:'#DBEAFE'},
+      {label:'Acreditados ✅',val:entregados,color:'#059669',bg:'#DCFCE7'},
+      {label:'Pendientes',val:pendientes,color:'#D97706',bg:'#FEF3C7'},
+      {label:'Avance',val:pct+'%',color:pct>=80?'#059669':'#D97706',bg:pct>=80?'#DCFCE7':'#FEF3C7'},
+    ].map(c=>`<div style="background:${c.bg};border-radius:10px;padding:14px;text-align:center">
+      <div style="font-size:22px;font-weight:900;color:${c.color}">${c.val}</div>
+      <div style="font-size:10px;font-weight:700;color:${c.color};margin-top:4px">${c.label}</div>
+    </div>`).join('');
+  }
+
+  // Badge resumen
+  const badge=document.getElementById('acr-resumen-badge');
+  if(badge)badge.textContent=`${ST.acreditaciones.length} entregados`;
+
+  // Historial
+  _renderHistorialAcreditacion();
+}
+
+function _renderHistorialAcreditacion(){
+  const hist=document.getElementById('acr-historial');
+  if(!hist)return;
+  initAcreditacion();
+  if(ST.acreditaciones.length===0){
+    hist.innerHTML=`<div style="text-align:center;padding:30px;color:#6B7280"><div style="font-size:36px;margin-bottom:8px">📋</div><div>Sin acreditaciones registradas aún</div></div>`;
+    return;
+  }
+  hist.innerHTML=[...ST.acreditaciones].reverse().map((a,ri)=>{
+    const idx=ST.acreditaciones.length-1-ri;
+    const nFotos=Object.values(a.fotos||{}).flat().length;
+    return`<div style="background:#F0FDF4;border:1px solid #86EFAC;border-radius:10px;padding:12px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="font-size:20px">✅</span>
+          <span style="font-family:monospace;font-size:14px;font-weight:900;color:#065F46">${a.pedido}</span>
+          <span style="background:#DCFCE7;color:#166534;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;border:1px solid #86EFAC">ENTREGADO</span>
+          <span style="font-size:11px;color:#6B7280">${a.cliente||''}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:10px;color:#9CA3AF">${a.timestamp?new Date(a.timestamp).toLocaleString('es-PE'):''}</span>
+          <button onclick="verFotosAcreditacion(${idx})"
+            style="background:#059669;color:#fff;border:none;border-radius:7px;padding:4px 10px;cursor:pointer;font-size:11px;font-weight:700">
+            📸 ${nFotos} foto${nFotos!==1?'s':''}
+          </button>
+          <button onclick="if(confirm('¿Anular esta acreditación?')){ST.acreditaciones.splice(${idx},1);_actualizarEstadoTrasPedido(a.pedido,'PENDIENTE');renderAcreditacion();save();toast('Acreditación anulada','warn')}"
+            style="background:#FEE2E2;color:#DC2626;border:none;border-radius:7px;padding:4px 10px;cursor:pointer;font-size:11px">✖ Anular</button>
+        </div>
+      </div>
+      ${a.obs?`<div style="font-size:11px;color:#374151;background:#ECFDF5;padding:6px 10px;border-radius:7px">${a.obs}</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+function acreditacionSelPedido(nro){
+  _acrState={pedido:nro,fotos:{}};
+  const panel=document.getElementById('acr-fotos-panel');
+  const info=document.getElementById('acr-pedido-info');
+  if(!nro){
+    if(panel)panel.style.display='none';
+    if(info)info.style.display='none';
+    return;
+  }
+  // Limpiar slots
+  ['cliente_producto','producto_caja','producto_abierto','direccion','suministro','dni_cliente','gr_firmada','adicional'].forEach(k=>{
+    const prev=document.getElementById('acr-prev-'+k);
+    if(prev)prev.innerHTML='';
+    const lbl=document.getElementById('acr-lbl-'+k);
+    if(lbl){lbl.style.opacity='1';lbl.textContent=k==='suministro'?'📷 Opcional':'📷 Tomar foto';}
+  });
+  const obsEl=document.getElementById('acr-obs');
+  if(obsEl)obsEl.value='';
+  _actualizarProgresoAcr();
+
+  // Mostrar info del pedido
+  const ped=ST.pedidos.find(p=>p.numero===nro)||ST.espe_todos?.find(e=>e.numero===nro)||{numero:nro};
+  if(info){
+    info.style.display='block';
+    info.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:14px;font-size:12px">
+      <div><span style="color:#6B7280;font-size:10px;display:block;font-weight:600">PEDIDO</span><span style="font-family:monospace;font-weight:800">${nro}</span></div>
+      <div><span style="color:#6B7280;font-size:10px;display:block;font-weight:600">CLIENTE</span><span style="font-weight:700">${ped.cliente||'—'}</span></div>
+      ${ped.producto?`<div><span style="color:#6B7280;font-size:10px;display:block;font-weight:600">PRODUCTO</span><span>${ped.producto}</span></div>`:''}
+      ${ped.direccion||ped.dir?`<div style="flex:1"><span style="color:#6B7280;font-size:10px;display:block;font-weight:600">DIRECCIÓN</span><span>${ped.direccion||ped.dir}</span></div>`:''}
+      ${ped.unidad||ped.placa?`<div><span style="color:#6B7280;font-size:10px;display:block;font-weight:600">UNIDAD</span><span style="font-weight:600">${ped.unidad||ped.placa}</span></div>`:''}
+    </div>`;
+  }
+  if(panel)panel.style.display='block';
+}
+
+function acreditacionBuscarManual(){
+  const inp=document.getElementById('acr-pedido-manual');
+  const nro=(inp?.value||'').trim();
+  if(!nro){alert('Ingresa un número de pedido');return;}
+  const sel=document.getElementById('acr-pedido-sel');
+  // Intentar encontrar en selector
+  if(sel){
+    const opt=Array.from(sel.options).find(o=>o.value===nro);
+    if(opt){sel.value=nro;acreditacionSelPedido(nro);}
+    else{
+      // No está en lista — crear entrada provisional
+      _acrState={pedido:nro,fotos:{}};
+      const panel=document.getElementById('acr-fotos-panel');
+      const info=document.getElementById('acr-pedido-info');
+      if(info){info.style.display='block';info.innerHTML=`<div style="font-size:12px;color:#B45309">⚠️ Pedido <strong>${nro}</strong> no encontrado en la carga de datos. Se registrará manualmente.</div>`;}
+      if(panel)panel.style.display='block';
+      // Limpiar slots
+      ['cliente_producto','producto_caja','producto_abierto','direccion','suministro','dni_cliente','gr_firmada','adicional'].forEach(k=>{
+        const prev=document.getElementById('acr-prev-'+k);if(prev)prev.innerHTML='';
+      });
+      _actualizarProgresoAcr();
+    }
+  }
+}
+
+function acreditacionFoto(input,tipo){
+  if(!input.files||input.files.length===0)return;
+  const prev=document.getElementById('acr-prev-'+tipo);
+  const lbl=document.getElementById('acr-lbl-'+tipo);
+  const files=Array.from(input.files).slice(0,3);
+  if(!prev)return;
+  if(!_acrState.fotos)_acrState.fotos={};
+  if(!_acrState.fotos[tipo])_acrState.fotos[tipo]=[];
+
+  let done=0;
+  files.forEach((f,i)=>{
+    const r=new FileReader();
+    r.onload=e=>{
+      _acrState.fotos[tipo].push(e.target.result);
+      done++;
+      if(done===files.length){
+        // Mostrar previews
+        prev.innerHTML=_acrState.fotos[tipo].map(src=>`
+          <img src="${src}" style="width:60px;height:60px;object-fit:cover;border-radius:8px;border:2px solid #059669;cursor:pointer;display:inline-block;margin:2px"
+            onclick="this.style.width=this.style.width==='180px'?'60px':'180px';this.style.height=this.style.height==='180px'?'60px':'180px'" title="Clic para ampliar">`
+        ).join('');
+        if(lbl){lbl.style.background='#059669';lbl.textContent='✅ '+_acrState.fotos[tipo].length+' foto'+(_acrState.fotos[tipo].length>1?'s':'');}
+        _actualizarProgresoAcr();
+      }
+    };
+    r.readAsDataURL(f);
+  });
+}
+
+function _actualizarProgresoAcr(){
+  const requeridas=['cliente_producto','producto_caja','direccion','gr_firmada'];
+  const opcionales=['producto_abierto','suministro','dni_cliente','adicional'];
+  const fotos=_acrState.fotos||{};
+  const cumplidasReq=requeridas.filter(k=>(fotos[k]||[]).length>0).length;
+  const total=requeridas.length;
+  const pct=Math.round(cumplidasReq/total*100);
+
+  const bar=document.getElementById('acr-progreso-bar');
+  const txt=document.getElementById('acr-progreso-txt');
+  const btn=document.getElementById('acr-btn-confirmar');
+  if(bar)bar.style.width=pct+'%';
+  if(bar)bar.style.background=pct>=100?'#059669':pct>=50?'#D97706':'#DC2626';
+  if(txt)txt.textContent=`${cumplidasReq} de ${total} fotos obligatorias · ${Object.values(fotos).flat().length} foto${Object.values(fotos).flat().length!==1?'s':''} en total`;
+  if(btn){
+    btn.style.opacity=cumplidasReq>=1?'1':'0.5';
+    btn.style.cursor=cumplidasReq>=1?'pointer':'not-allowed';
+  }
+}
+
+function confirmarEntregaAcreditada(){
+  initAcreditacion();
+  const nro=_acrState.pedido;
+  if(!nro){alert('Primero selecciona o ingresa un número de pedido');return;}
+
+  const totalFotos=Object.values(_acrState.fotos||{}).flat().length;
+  if(totalFotos===0){
+    alert('Debes subir al menos 1 foto de evidencia para acreditar la entrega');return;
+  }
+
+  const obs=(document.getElementById('acr-obs')?.value||'').trim();
+  const timestamp=Date.now();
+
+  // Verificar si ya fue acreditado
+  if(ST.acreditaciones.find(a=>a.pedido===nro)){
+    if(!confirm(`El pedido ${nro} ya fue acreditado. ¿Deseas registrar una acreditación adicional?`))return;
+  }
+
+  // Buscar info del pedido
+  const ped=ST.pedidos.find(p=>p.numero===nro)||{numero:nro,cliente:'—'};
+
+  // Guardar acreditación
+  ST.acreditaciones.push({
+    pedido:nro,cliente:ped.cliente||'—',
+    fotos:{..._acrState.fotos},
+    obs,timestamp,
+    acreditado_por:'Chofer/Motorizado'
+  });
+
+  // Cambiar estado del pedido a ENTREGADO
+  _actualizarEstadoTrasPedido(nro,'ENTREGADO');
+
+  // Limpiar estado
+  _acrState={pedido:null,fotos:{}};
+  const sel=document.getElementById('acr-pedido-sel');
+  if(sel)sel.value='';
+  const panel=document.getElementById('acr-fotos-panel');
+  const info=document.getElementById('acr-pedido-info');
+  if(panel)panel.style.display='none';
+  if(info)info.style.display='none';
+
+  save();
+  renderAcreditacion();
+  toast('✅ ENTREGA ACREDITADA — Estado cambiado a ENTREGADO','success');
+
+  // Scroll al historial
+  const hist=document.getElementById('acr-historial');
+  if(hist)hist.scrollIntoView({behavior:'smooth'});
+}
+
+function _actualizarEstadoTrasPedido(nro,nuevoEstado){
+  // Actualizar en ST.pedidos
+  ST.pedidos.forEach(p=>{
+    if(p.numero===nro){p.estado=nuevoEstado;p.conf_estado=nuevoEstado;}
+  });
+  // Actualizar en rechazos si existe
+  (ST.rechazos||[]).forEach(p=>{
+    if(p.numero===nro){p.estado=nuevoEstado;p.conf_estado=nuevoEstado;}
+  });
+}
+
+function verFotosAcreditacion(idx){
+  const acr=ST.acreditaciones[idx];
+  if(!acr)return;
+  const fotos=Object.entries(acr.fotos||{});
+  const labels={cliente_producto:'Cliente con Producto',producto_caja:'Producto en Caja',
+    producto_abierto:'Producto Fuera de Caja',direccion:'Casa/Dirección',
+    suministro:'Suministro Calidda',dni_cliente:'DNI Cliente',
+    gr_firmada:'GR Firmada',adicional:'Fotos Adicionales'};
+
+  let html=`<div style="position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9000;overflow-y:auto;padding:20px" onclick="this.remove()">
+    <div style="background:#fff;border-radius:12px;max-width:800px;margin:0 auto;padding:20px" onclick="event.stopPropagation()">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:#065F46">📸 Evidencia de Entrega — Pedido ${acr.pedido}</div>
+          <div style="font-size:11px;color:#6B7280">${acr.cliente||'—'} · ${acr.timestamp?new Date(acr.timestamp).toLocaleString('es-PE'):''}</div>
+        </div>
+        <button onclick="this.closest('[style*=\"fixed\"]').remove()" style="background:#F1F5F9;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:700">✖ Cerrar</button>
+      </div>
+      ${acr.obs?`<div style="background:#ECFDF5;border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px;color:#065F46"><strong>Observaciones:</strong> ${acr.obs}</div>`:''}
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px">
+        ${fotos.map(([tipo,imgs])=>{
+          const arr=Array.isArray(imgs)?imgs:[imgs];
+          return`<div style="border:1px solid #E2E8F0;border-radius:10px;overflow:hidden">
+            <div style="background:#F8FAFC;padding:8px 10px;font-size:11px;font-weight:700;color:#374151">${labels[tipo]||tipo}</div>
+            <div style="padding:8px;display:flex;flex-wrap:wrap;gap:6px">
+              ${arr.map(src=>`<img src="${src}" style="width:100%;max-width:180px;border-radius:7px;cursor:zoom-in" onclick="window.open('${src}','_blank')">`).join('')}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+
+function expAcreditacionCSV(){
+  initAcreditacion();
+  let csv='ACREDITACIONES DE ENTREGAS — GRUPO MERPES\n';
+  csv+='Exportado:,'+new Date().toLocaleString('es-PE')+'\n\n';
+  csv+='Pedido,Cliente,Fecha/Hora,Fotos,Observaciones\n';
+  ST.acreditaciones.forEach(a=>{
+    const nFotos=Object.values(a.fotos||{}).flat().length;
+    csv+=`${a.pedido||''},"${(a.cliente||'').replace(/"/g,"'")}","${a.timestamp?new Date(a.timestamp).toLocaleString('es-PE'):''}",${nFotos},"${(a.obs||'').replace(/"/g,"'")}"\n`;
+  });
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+  const el=document.createElement('a');
+  el.href=URL.createObjectURL(blob);
+  el.download='Acreditaciones_Merpes_'+new Date().toISOString().slice(0,10)+'.csv';
+  el.click();URL.revokeObjectURL(el.href);
+  toast('📥 CSV de acreditaciones exportado','success');
+}
+
 // Llamar renderVigilancia cuando se entra a la pestaña
 const _origShowTab=showTab;
 function showTab(t,btn){
   _origShowTab(t,btn);
   if(t==='vigilancia'){try{renderVigilancia();}catch(e){console.warn('renderVigilancia:',e);}}
   if(t==='kpi'){try{renderKpiComplementarios();}catch(e){}}
+  if(t==='acreditacion'){try{renderAcreditacion();}catch(e){console.warn('renderAcreditacion:',e);}}
+  if(t==='consulta'){try{_populateConsultaFilters();}catch(e){}}
 }
 </script>
 <!-- CONFIG MODAL -->
