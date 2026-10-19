@@ -276,170 +276,2362 @@ tbody td:first-child{padding-left:14px}
 </style>
 <!-- SheetJS para leer archivos .xlsx directamente sin exportar a CSV -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<!-- QR Generator embebido (sin CDN) — basado en canvas, funciona offline -->
+<!-- qrcode-generator embebido (sin CDN) — Kazuhiko Arase, MIT License -->
 <script>
-/* Micro QR generator — encodes text to QR using canvas, no external deps.
-   API: drawQR(canvas, text, size) — dibuja el QR en un <canvas> existente.
-   Para uso en la herramienta: genQRCanvas(text, size) => <canvas>
-*/
-(function(root){
-'use strict';
-/* -------- Reed-Solomon GF(256) -------- */
-var GF={exp:new Uint8Array(512),log:new Uint8Array(256)};
-(function(){var x=1;for(var i=0;i<255;i++){GF.exp[i]=x;GF.log[x]=i;x<<=1;if(x&256)x^=285;}for(var i=255;i<512;i++)GF.exp[i]=GF.exp[i-255];}());
-function gmul(a,b){if(a===0||b===0)return 0;return GF.exp[(GF.log[a]+GF.log[b])%255];}
-function gpow(a,b){return GF.exp[(GF.log[a]*b)%255];}
-function poly_gen(ec){var g=[1];for(var i=0;i<ec;i++){var n=[1,gpow(2,i)];var r=new Array(g.length+n.length-1).fill(0);for(var j=0;j<g.length;j++)for(var k=0;k<n.length;k++)r[j+k]^=gmul(g[j],n[k]);g=r;}return g;}
-function poly_div(msg,gen){var r=msg.slice();for(var i=0;i<msg.length;i++){var c=r[i];if(c!==0)for(var j=1;j<gen.length;j++)r[i+j]^=gmul(gen[j],c);}return r.slice(msg.length);}
-/* -------- Encoding tables -------- */
-var alphanum='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:';
-/* -------- QR data -------- */
-var EC_CODEWORDS=[[7,10,13,17],[10,16,22,28],[15,26,36,44],[20,36,52,64],[26,48,72,88]];
-var EC_BLOCKS=[[1,1,1,1],[1,1,1,1],[1,1,2,2],[1,2,2,4],[1,2,4,4]];
-var REMAINDER=[0,7,7,7,7];
-var ALIGN=[[],[6,18],[6,22],[6,26],[6,30]];
-/* -------- Bit stream -------- */
-function BS(){this.b=[];this.n=0;}
-BS.prototype.push=function(v,l){for(var i=l-1;i>=0;i--)this.b.push((v>>i)&1);this.n+=l;};
-BS.prototype.pad=function(total){while(this.n<total){this.push(0b11101100,8);if(this.n<total)this.push(0b00010001,8);}};
-BS.prototype.bytes=function(){var r=[];for(var i=0;i<this.b.length;i+=8){var v=0;for(var j=0;j<8;j++)v=(v<<1)|(this.b[i+j]||0);r.push(v);}return r;};
-/* -------- Encode -------- */
-function encode(text,ecl){
-  var ver=1;
-  var ECL=['L','M','Q','H'];
-  var eli=ECL.indexOf(ecl)||0;
-  // Mode detection — byte mode only for simplicity
-  var bytes=[];for(var i=0;i<text.length;i++)bytes.push(text.charCodeAt(i)&0xFF);
-  // Find minimum version
-  var CAP_BYTE=[[17,14,11,7],[32,26,20,14],[53,42,32,24],[78,62,46,34],[106,84,60,44]];
-  for(ver=1;ver<=5;ver++){if(bytes.length<=CAP_BYTE[ver-1][eli])break;}
-  var totalDC=EC_CODEWORDS[ver-1][eli];
-  var ecCount=EC_BLOCKS[ver-1][eli]; // simplified: 1 block
-  var dataCount=totalDC-ecCount;
-  var bs=new BS();
-  bs.push(0b0100,4); // byte mode
-  bs.push(bytes.length,8);
-  for(var i=0;i<bytes.length;i++)bs.push(bytes[i],8);
-  bs.push(0,4); // terminator
-  bs.pad(dataCount*8);
-  var dc=bs.bytes().slice(0,dataCount);
-  var gen=poly_gen(ecCount);
-  var ec=poly_div(dc.concat(new Array(ecCount).fill(0)),gen);
-  var all=dc.concat(ec);
-  return {ver:ver,data:all,ecl:eli};
-}
-/* -------- Matrix builder -------- */
-function matrix(ver){var s=ver*4+17;var m=[];for(var i=0;i<s;i++){m.push(new Uint8Array(s));}return m;}
-function setBit(m,r,c,v){m[r][c]=v?3:2;} // 3=dark, 2=light (set)
-function isSet(m,r,c){return m[r][c]>=2;}
-var S=0;// size
-function finder(m,r,c){for(var i=0;i<7;i++)for(var j=0;j<7;j++){var d=(i===0||i===6||j===0||j===6)?1:(i>=2&&i<=4&&j>=2&&j<=4)?1:0;setBit(m,r+i,c+j,d);}for(var i=-1;i<=7;i++){if(r+i>=0&&r+i<S){if(c-1>=0)setBit(m,r+i,c-1,0);if(c+7<S)setBit(m,r+i,c+7,0);}if(c+i>=0&&c+i<S){if(r-1>=0)setBit(m,r-1,c+i,0);if(r+7<S)setBit(m,r+7,c+i,0);}}}
-function timing(m){for(var i=8;i<S-8;i++){setBit(m,6,i,i%2===0?1:0);setBit(m,i,6,i%2===0?1:0);}}
-function alignment(m,ver){var pos=ALIGN[ver-1];if(!pos.length)return;for(var pi=0;pi<pos.length;pi++)for(var pj=0;pj<pos.length;pj++){var r=pos[pi],c=pos[pj];if(isSet(m,r,c))continue;for(var i=-2;i<=2;i++)for(var j=-2;j<=2;j++){var d=(i===-2||i===2||j===-2||j===2)?1:(i===0&&j===0)?1:0;setBit(m,r+i,c+j,d);}}}
-function darkModule(m,ver){setBit(m,4*ver+9,8,1);}
-function formatInfo(m,ecl,mask){
-  var fmt=[0b111011111000100,0b111001011110011,0b111110110101010,0b111100010011101,0b110011000101111,0b110001100011000,0b110110001000001,0b110100101110110];
-  var ECL_I=[1,0,3,2];
-  var f=fmt[ECL_I[ecl]*8+mask];// simplified index
-  f=fmt[(ECL_I[ecl]<<3)|mask];
-  var bits=[];for(var i=14;i>=0;i--)bits.push((f>>i)&1);
-  // horizontal
-  var hs=[0,1,2,3,4,5,7,8,S-7,S-6,S-5,S-4,S-3,S-2,S-1];
-  for(var i=0;i<15;i++){setBit(m,8,hs[i],bits[i]);}
-  // vertical
-  var vs=[S-1,S-2,S-3,S-4,S-5,S-6,S-7,8,7,5,4,3,2,1,0];
-  for(var i=0;i<15;i++){setBit(m,vs[i],8,bits[i]);}
-}
-var MASKS=[
-  function(r,c){return(r+c)%2===0;},
-  function(r,c){return r%2===0;},
-  function(r,c){return c%3===0;},
-  function(r,c){return(r+c)%3===0;},
-  function(r,c){return(Math.floor(r/2)+Math.floor(c/3))%2===0;},
-  function(r,c){return(r*c)%2+(r*c)%3===0;},
-  function(r,c){return((r*c)%2+(r*c)%3)%2===0;},
-  function(r,c){return((r+c)%2+(r*c)%3)%2===0;}
-];
-function placeData(m,data){
-  var bits=[];
-  for(var i=0;i<data.length;i++)for(var j=7;j>=0;j--)bits.push((data[i]>>j)&1);
-  var bi=0,up=true;
-  for(var c=S-1;c>=1;c-=2){if(c===6)c=5;
-    for(var ri=0;ri<S;ri++){
-      var r=up?S-1-ri:ri;
-      for(var dc2=0;dc2<=1;dc2++){var col=c-dc2;if(!isSet(m,r,col)){m[r][col]=bi<bits.length?bits[bi++]:0;}}
+/* qrcode-generator v1.x — Kazuhiko Arase — MIT License */
+//---------------------------------------------------------------------
+//
+// QR Code Generator for JavaScript
+//
+// Copyright (c) 2009 Kazuhiko Arase
+//
+// URL: http://www.d-project.com/
+//
+// Licensed under the MIT license:
+//  http://www.opensource.org/licenses/mit-license.php
+//
+// The word 'QR Code' is registered trademark of
+// DENSO WAVE INCORPORATED
+//  http://www.denso-wave.com/qrcode/faqpatent-e.html
+//
+//---------------------------------------------------------------------
+
+var qrcode = function() {
+
+  //---------------------------------------------------------------------
+  // qrcode
+  //---------------------------------------------------------------------
+
+  /**
+   * qrcode
+   * @param typeNumber 1 to 40
+   * @param errorCorrectionLevel 'L','M','Q','H'
+   */
+  var qrcode = function(typeNumber, errorCorrectionLevel) {
+
+    var PAD0 = 0xEC;
+    var PAD1 = 0x11;
+
+    var _typeNumber = typeNumber;
+    var _errorCorrectionLevel = QRErrorCorrectionLevel[errorCorrectionLevel];
+    var _modules = null;
+    var _moduleCount = 0;
+    var _dataCache = null;
+    var _dataList = [];
+
+    var _this = {};
+
+    var makeImpl = function(test, maskPattern) {
+
+      _moduleCount = _typeNumber * 4 + 17;
+      _modules = function(moduleCount) {
+        var modules = new Array(moduleCount);
+        for (var row = 0; row < moduleCount; row += 1) {
+          modules[row] = new Array(moduleCount);
+          for (var col = 0; col < moduleCount; col += 1) {
+            modules[row][col] = null;
+          }
+        }
+        return modules;
+      }(_moduleCount);
+
+      setupPositionProbePattern(0, 0);
+      setupPositionProbePattern(_moduleCount - 7, 0);
+      setupPositionProbePattern(0, _moduleCount - 7);
+      setupPositionAdjustPattern();
+      setupTimingPattern();
+      setupTypeInfo(test, maskPattern);
+
+      if (_typeNumber >= 7) {
+        setupTypeNumber(test);
+      }
+
+      if (_dataCache == null) {
+        _dataCache = createData(_typeNumber, _errorCorrectionLevel, _dataList);
+      }
+
+      mapData(_dataCache, maskPattern);
+    };
+
+    var setupPositionProbePattern = function(row, col) {
+
+      for (var r = -1; r <= 7; r += 1) {
+
+        if (row + r <= -1 || _moduleCount <= row + r) continue;
+
+        for (var c = -1; c <= 7; c += 1) {
+
+          if (col + c <= -1 || _moduleCount <= col + c) continue;
+
+          if ( (0 <= r && r <= 6 && (c == 0 || c == 6) )
+              || (0 <= c && c <= 6 && (r == 0 || r == 6) )
+              || (2 <= r && r <= 4 && 2 <= c && c <= 4) ) {
+            _modules[row + r][col + c] = true;
+          } else {
+            _modules[row + r][col + c] = false;
+          }
+        }
+      }
+    };
+
+    var getBestMaskPattern = function() {
+
+      var minLostPoint = 0;
+      var pattern = 0;
+
+      for (var i = 0; i < 8; i += 1) {
+
+        makeImpl(true, i);
+
+        var lostPoint = QRUtil.getLostPoint(_this);
+
+        if (i == 0 || minLostPoint > lostPoint) {
+          minLostPoint = lostPoint;
+          pattern = i;
+        }
+      }
+
+      return pattern;
+    };
+
+    var setupTimingPattern = function() {
+
+      for (var r = 8; r < _moduleCount - 8; r += 1) {
+        if (_modules[r][6] != null) {
+          continue;
+        }
+        _modules[r][6] = (r % 2 == 0);
+      }
+
+      for (var c = 8; c < _moduleCount - 8; c += 1) {
+        if (_modules[6][c] != null) {
+          continue;
+        }
+        _modules[6][c] = (c % 2 == 0);
+      }
+    };
+
+    var setupPositionAdjustPattern = function() {
+
+      var pos = QRUtil.getPatternPosition(_typeNumber);
+
+      for (var i = 0; i < pos.length; i += 1) {
+
+        for (var j = 0; j < pos.length; j += 1) {
+
+          var row = pos[i];
+          var col = pos[j];
+
+          if (_modules[row][col] != null) {
+            continue;
+          }
+
+          for (var r = -2; r <= 2; r += 1) {
+
+            for (var c = -2; c <= 2; c += 1) {
+
+              if (r == -2 || r == 2 || c == -2 || c == 2
+                  || (r == 0 && c == 0) ) {
+                _modules[row + r][col + c] = true;
+              } else {
+                _modules[row + r][col + c] = false;
+              }
+            }
+          }
+        }
+      }
+    };
+
+    var setupTypeNumber = function(test) {
+
+      var bits = QRUtil.getBCHTypeNumber(_typeNumber);
+
+      for (var i = 0; i < 18; i += 1) {
+        var mod = (!test && ( (bits >> i) & 1) == 1);
+        _modules[Math.floor(i / 3)][i % 3 + _moduleCount - 8 - 3] = mod;
+      }
+
+      for (var i = 0; i < 18; i += 1) {
+        var mod = (!test && ( (bits >> i) & 1) == 1);
+        _modules[i % 3 + _moduleCount - 8 - 3][Math.floor(i / 3)] = mod;
+      }
+    };
+
+    var setupTypeInfo = function(test, maskPattern) {
+
+      var data = (_errorCorrectionLevel << 3) | maskPattern;
+      var bits = QRUtil.getBCHTypeInfo(data);
+
+      // vertical
+      for (var i = 0; i < 15; i += 1) {
+
+        var mod = (!test && ( (bits >> i) & 1) == 1);
+
+        if (i < 6) {
+          _modules[i][8] = mod;
+        } else if (i < 8) {
+          _modules[i + 1][8] = mod;
+        } else {
+          _modules[_moduleCount - 15 + i][8] = mod;
+        }
+      }
+
+      // horizontal
+      for (var i = 0; i < 15; i += 1) {
+
+        var mod = (!test && ( (bits >> i) & 1) == 1);
+
+        if (i < 8) {
+          _modules[8][_moduleCount - i - 1] = mod;
+        } else if (i < 9) {
+          _modules[8][15 - i - 1 + 1] = mod;
+        } else {
+          _modules[8][15 - i - 1] = mod;
+        }
+      }
+
+      // fixed module
+      _modules[_moduleCount - 8][8] = (!test);
+    };
+
+    var mapData = function(data, maskPattern) {
+
+      var inc = -1;
+      var row = _moduleCount - 1;
+      var bitIndex = 7;
+      var byteIndex = 0;
+      var maskFunc = QRUtil.getMaskFunction(maskPattern);
+
+      for (var col = _moduleCount - 1; col > 0; col -= 2) {
+
+        if (col == 6) col -= 1;
+
+        while (true) {
+
+          for (var c = 0; c < 2; c += 1) {
+
+            if (_modules[row][col - c] == null) {
+
+              var dark = false;
+
+              if (byteIndex < data.length) {
+                dark = ( ( (data[byteIndex] >>> bitIndex) & 1) == 1);
+              }
+
+              var mask = maskFunc(row, col - c);
+
+              if (mask) {
+                dark = !dark;
+              }
+
+              _modules[row][col - c] = dark;
+              bitIndex -= 1;
+
+              if (bitIndex == -1) {
+                byteIndex += 1;
+                bitIndex = 7;
+              }
+            }
+          }
+
+          row += inc;
+
+          if (row < 0 || _moduleCount <= row) {
+            row -= inc;
+            inc = -inc;
+            break;
+          }
+        }
+      }
+    };
+
+    var createBytes = function(buffer, rsBlocks) {
+
+      var offset = 0;
+
+      var maxDcCount = 0;
+      var maxEcCount = 0;
+
+      var dcdata = new Array(rsBlocks.length);
+      var ecdata = new Array(rsBlocks.length);
+
+      for (var r = 0; r < rsBlocks.length; r += 1) {
+
+        var dcCount = rsBlocks[r].dataCount;
+        var ecCount = rsBlocks[r].totalCount - dcCount;
+
+        maxDcCount = Math.max(maxDcCount, dcCount);
+        maxEcCount = Math.max(maxEcCount, ecCount);
+
+        dcdata[r] = new Array(dcCount);
+
+        for (var i = 0; i < dcdata[r].length; i += 1) {
+          dcdata[r][i] = 0xff & buffer.getBuffer()[i + offset];
+        }
+        offset += dcCount;
+
+        var rsPoly = QRUtil.getErrorCorrectPolynomial(ecCount);
+        var rawPoly = qrPolynomial(dcdata[r], rsPoly.getLength() - 1);
+
+        var modPoly = rawPoly.mod(rsPoly);
+        ecdata[r] = new Array(rsPoly.getLength() - 1);
+        for (var i = 0; i < ecdata[r].length; i += 1) {
+          var modIndex = i + modPoly.getLength() - ecdata[r].length;
+          ecdata[r][i] = (modIndex >= 0)? modPoly.getAt(modIndex) : 0;
+        }
+      }
+
+      var totalCodeCount = 0;
+      for (var i = 0; i < rsBlocks.length; i += 1) {
+        totalCodeCount += rsBlocks[i].totalCount;
+      }
+
+      var data = new Array(totalCodeCount);
+      var index = 0;
+
+      for (var i = 0; i < maxDcCount; i += 1) {
+        for (var r = 0; r < rsBlocks.length; r += 1) {
+          if (i < dcdata[r].length) {
+            data[index] = dcdata[r][i];
+            index += 1;
+          }
+        }
+      }
+
+      for (var i = 0; i < maxEcCount; i += 1) {
+        for (var r = 0; r < rsBlocks.length; r += 1) {
+          if (i < ecdata[r].length) {
+            data[index] = ecdata[r][i];
+            index += 1;
+          }
+        }
+      }
+
+      return data;
+    };
+
+    var createData = function(typeNumber, errorCorrectionLevel, dataList) {
+
+      var rsBlocks = QRRSBlock.getRSBlocks(typeNumber, errorCorrectionLevel);
+
+      var buffer = qrBitBuffer();
+
+      for (var i = 0; i < dataList.length; i += 1) {
+        var data = dataList[i];
+        buffer.put(data.getMode(), 4);
+        buffer.put(data.getLength(), QRUtil.getLengthInBits(data.getMode(), typeNumber) );
+        data.write(buffer);
+      }
+
+      // calc num max data.
+      var totalDataCount = 0;
+      for (var i = 0; i < rsBlocks.length; i += 1) {
+        totalDataCount += rsBlocks[i].dataCount;
+      }
+
+      if (buffer.getLengthInBits() > totalDataCount * 8) {
+        throw 'code length overflow. ('
+          + buffer.getLengthInBits()
+          + '>'
+          + totalDataCount * 8
+          + ')';
+      }
+
+      // end code
+      if (buffer.getLengthInBits() + 4 <= totalDataCount * 8) {
+        buffer.put(0, 4);
+      }
+
+      // padding
+      while (buffer.getLengthInBits() % 8 != 0) {
+        buffer.putBit(false);
+      }
+
+      // padding
+      while (true) {
+
+        if (buffer.getLengthInBits() >= totalDataCount * 8) {
+          break;
+        }
+        buffer.put(PAD0, 8);
+
+        if (buffer.getLengthInBits() >= totalDataCount * 8) {
+          break;
+        }
+        buffer.put(PAD1, 8);
+      }
+
+      return createBytes(buffer, rsBlocks);
+    };
+
+    _this.addData = function(data, mode) {
+
+      mode = mode || 'Byte';
+
+      var newData = null;
+
+      switch(mode) {
+      case 'Numeric' :
+        newData = qrNumber(data);
+        break;
+      case 'Alphanumeric' :
+        newData = qrAlphaNum(data);
+        break;
+      case 'Byte' :
+        newData = qr8BitByte(data);
+        break;
+      case 'Kanji' :
+        newData = qrKanji(data);
+        break;
+      default :
+        throw 'mode:' + mode;
+      }
+
+      _dataList.push(newData);
+      _dataCache = null;
+    };
+
+    _this.isDark = function(row, col) {
+      if (row < 0 || _moduleCount <= row || col < 0 || _moduleCount <= col) {
+        throw row + ',' + col;
+      }
+      return _modules[row][col];
+    };
+
+    _this.getModuleCount = function() {
+      return _moduleCount;
+    };
+
+    _this.make = function() {
+      if (_typeNumber < 1) {
+        var typeNumber = 1;
+
+        for (; typeNumber < 40; typeNumber++) {
+          var rsBlocks = QRRSBlock.getRSBlocks(typeNumber, _errorCorrectionLevel);
+          var buffer = qrBitBuffer();
+
+          for (var i = 0; i < _dataList.length; i++) {
+            var data = _dataList[i];
+            buffer.put(data.getMode(), 4);
+            buffer.put(data.getLength(), QRUtil.getLengthInBits(data.getMode(), typeNumber) );
+            data.write(buffer);
+          }
+
+          var totalDataCount = 0;
+          for (var i = 0; i < rsBlocks.length; i++) {
+            totalDataCount += rsBlocks[i].dataCount;
+          }
+
+          if (buffer.getLengthInBits() <= totalDataCount * 8) {
+            break;
+          }
+        }
+
+        _typeNumber = typeNumber;
+      }
+
+      makeImpl(false, getBestMaskPattern() );
+    };
+
+    _this.createTableTag = function(cellSize, margin) {
+
+      cellSize = cellSize || 2;
+      margin = (typeof margin == 'undefined')? cellSize * 4 : margin;
+
+      var qrHtml = '';
+
+      qrHtml += '<table style="';
+      qrHtml += ' border-width: 0px; border-style: none;';
+      qrHtml += ' border-collapse: collapse;';
+      qrHtml += ' padding: 0px; margin: ' + margin + 'px;';
+      qrHtml += '">';
+      qrHtml += '<tbody>';
+
+      for (var r = 0; r < _this.getModuleCount(); r += 1) {
+
+        qrHtml += '<tr>';
+
+        for (var c = 0; c < _this.getModuleCount(); c += 1) {
+          qrHtml += '<td style="';
+          qrHtml += ' border-width: 0px; border-style: none;';
+          qrHtml += ' border-collapse: collapse;';
+          qrHtml += ' padding: 0px; margin: 0px;';
+          qrHtml += ' width: ' + cellSize + 'px;';
+          qrHtml += ' height: ' + cellSize + 'px;';
+          qrHtml += ' background-color: ';
+          qrHtml += _this.isDark(r, c)? '#000000' : '#ffffff';
+          qrHtml += ';';
+          qrHtml += '"/>';
+        }
+
+        qrHtml += '</tr>';
+      }
+
+      qrHtml += '</tbody>';
+      qrHtml += '</table>';
+
+      return qrHtml;
+    };
+
+    _this.createSvgTag = function(cellSize, margin, alt, title) {
+
+      var opts = {};
+      if (typeof arguments[0] == 'object') {
+        // Called by options.
+        opts = arguments[0];
+        // overwrite cellSize and margin.
+        cellSize = opts.cellSize;
+        margin = opts.margin;
+        alt = opts.alt;
+        title = opts.title;
+      }
+
+      cellSize = cellSize || 2;
+      margin = (typeof margin == 'undefined')? cellSize * 4 : margin;
+
+      // Compose alt property surrogate
+      alt = (typeof alt === 'string') ? {text: alt} : alt || {};
+      alt.text = alt.text || null;
+      alt.id = (alt.text) ? alt.id || 'qrcode-description' : null;
+
+      // Compose title property surrogate
+      title = (typeof title === 'string') ? {text: title} : title || {};
+      title.text = title.text || null;
+      title.id = (title.text) ? title.id || 'qrcode-title' : null;
+
+      var size = _this.getModuleCount() * cellSize + margin * 2;
+      var c, mc, r, mr, qrSvg='', rect;
+
+      rect = 'l' + cellSize + ',0 0,' + cellSize +
+        ' -' + cellSize + ',0 0,-' + cellSize + 'z ';
+
+      qrSvg += '<svg version="1.1" xmlns="http://www.w3.org/2000/svg"';
+      qrSvg += !opts.scalable ? ' width="' + size + 'px" height="' + size + 'px"' : '';
+      qrSvg += ' viewBox="0 0 ' + size + ' ' + size + '" ';
+      qrSvg += ' preserveAspectRatio="xMinYMin meet"';
+      qrSvg += (title.text || alt.text) ? ' role="img" aria-labelledby="' +
+          escapeXml([title.id, alt.id].join(' ').trim() ) + '"' : '';
+      qrSvg += '>';
+      qrSvg += (title.text) ? '<title id="' + escapeXml(title.id) + '">' +
+          escapeXml(title.text) + '</title>' : '';
+      qrSvg += (alt.text) ? '<description id="' + escapeXml(alt.id) + '">' +
+          escapeXml(alt.text) + '</description>' : '';
+      qrSvg += '<rect width="100%" height="100%" fill="white" cx="0" cy="0"/>';
+      qrSvg += '<path d="';
+
+      for (r = 0; r < _this.getModuleCount(); r += 1) {
+        mr = r * cellSize + margin;
+        for (c = 0; c < _this.getModuleCount(); c += 1) {
+          if (_this.isDark(r, c) ) {
+            mc = c*cellSize+margin;
+            qrSvg += 'M' + mc + ',' + mr + rect;
+          }
+        }
+      }
+
+      qrSvg += '" stroke="transparent" fill="black"/>';
+      qrSvg += '</svg>';
+
+      return qrSvg;
+    };
+
+    _this.createDataURL = function(cellSize, margin) {
+
+      cellSize = cellSize || 2;
+      margin = (typeof margin == 'undefined')? cellSize * 4 : margin;
+
+      var size = _this.getModuleCount() * cellSize + margin * 2;
+      var min = margin;
+      var max = size - margin;
+
+      return createDataURL(size, size, function(x, y) {
+        if (min <= x && x < max && min <= y && y < max) {
+          var c = Math.floor( (x - min) / cellSize);
+          var r = Math.floor( (y - min) / cellSize);
+          return _this.isDark(r, c)? 0 : 1;
+        } else {
+          return 1;
+        }
+      } );
+    };
+
+    _this.createImgTag = function(cellSize, margin, alt) {
+
+      cellSize = cellSize || 2;
+      margin = (typeof margin == 'undefined')? cellSize * 4 : margin;
+
+      var size = _this.getModuleCount() * cellSize + margin * 2;
+
+      var img = '';
+      img += '<img';
+      img += '\u0020src="';
+      img += _this.createDataURL(cellSize, margin);
+      img += '"';
+      img += '\u0020width="';
+      img += size;
+      img += '"';
+      img += '\u0020height="';
+      img += size;
+      img += '"';
+      if (alt) {
+        img += '\u0020alt="';
+        img += escapeXml(alt);
+        img += '"';
+      }
+      img += '/>';
+
+      return img;
+    };
+
+    var escapeXml = function(s) {
+      var escaped = '';
+      for (var i = 0; i < s.length; i += 1) {
+        var c = s.charAt(i);
+        switch(c) {
+        case '<': escaped += '&lt;'; break;
+        case '>': escaped += '&gt;'; break;
+        case '&': escaped += '&amp;'; break;
+        case '"': escaped += '&quot;'; break;
+        default : escaped += c; break;
+        }
+      }
+      return escaped;
+    };
+
+    var _createHalfASCII = function(margin) {
+      var cellSize = 1;
+      margin = (typeof margin == 'undefined')? cellSize * 2 : margin;
+
+      var size = _this.getModuleCount() * cellSize + margin * 2;
+      var min = margin;
+      var max = size - margin;
+
+      var y, x, r1, r2, p;
+
+      var blocks = {
+        '██': '█',
+        '█ ': '▀',
+        ' █': '▄',
+        '  ': ' '
+      };
+
+      var blocksLastLineNoMargin = {
+        '██': '▀',
+        '█ ': '▀',
+        ' █': ' ',
+        '  ': ' '
+      };
+
+      var ascii = '';
+      for (y = 0; y < size; y += 2) {
+        r1 = Math.floor((y - min) / cellSize);
+        r2 = Math.floor((y + 1 - min) / cellSize);
+        for (x = 0; x < size; x += 1) {
+          p = '█';
+
+          if (min <= x && x < max && min <= y && y < max && _this.isDark(r1, Math.floor((x - min) / cellSize))) {
+            p = ' ';
+          }
+
+          if (min <= x && x < max && min <= y+1 && y+1 < max && _this.isDark(r2, Math.floor((x - min) / cellSize))) {
+            p += ' ';
+          }
+          else {
+            p += '█';
+          }
+
+          // Output 2 characters per pixel, to create full square. 1 character per pixels gives only half width of square.
+          ascii += (margin < 1 && y+1 >= max) ? blocksLastLineNoMargin[p] : blocks[p];
+        }
+
+        ascii += '\n';
+      }
+
+      if (size % 2 && margin > 0) {
+        return ascii.substring(0, ascii.length - size - 1) + Array(size+1).join('▀');
+      }
+
+      return ascii.substring(0, ascii.length-1);
+    };
+
+    _this.createASCII = function(cellSize, margin) {
+      cellSize = cellSize || 1;
+
+      if (cellSize < 2) {
+        return _createHalfASCII(margin);
+      }
+
+      cellSize -= 1;
+      margin = (typeof margin == 'undefined')? cellSize * 2 : margin;
+
+      var size = _this.getModuleCount() * cellSize + margin * 2;
+      var min = margin;
+      var max = size - margin;
+
+      var y, x, r, p;
+
+      var white = Array(cellSize+1).join('██');
+      var black = Array(cellSize+1).join('  ');
+
+      var ascii = '';
+      var line = '';
+      for (y = 0; y < size; y += 1) {
+        r = Math.floor( (y - min) / cellSize);
+        line = '';
+        for (x = 0; x < size; x += 1) {
+          p = 1;
+
+          if (min <= x && x < max && min <= y && y < max && _this.isDark(r, Math.floor((x - min) / cellSize))) {
+            p = 0;
+          }
+
+          // Output 2 characters per pixel, to create full square. 1 character per pixels gives only half width of square.
+          line += p ? white : black;
+        }
+
+        for (r = 0; r < cellSize; r += 1) {
+          ascii += line + '\n';
+        }
+      }
+
+      return ascii.substring(0, ascii.length-1);
+    };
+
+    _this.renderTo2dContext = function(context, cellSize) {
+      cellSize = cellSize || 2;
+      var length = _this.getModuleCount();
+      for (var row = 0; row < length; row++) {
+        for (var col = 0; col < length; col++) {
+          context.fillStyle = _this.isDark(row, col) ? 'black' : 'white';
+          context.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
+        }
+      }
     }
-    up=!up;
-  }
-}
-function applyMask(m,mask){
-  for(var r=0;r<S;r++)for(var c=0;c<S;c++){if(m[r][c]<2&&MASKS[mask](r,c))m[r][c]^=1;}
-}
-function buildQR(text,ecl){
-  var enc=encode(text,ecl);
-  var ver=enc.ver;
-  var m=matrix(ver);S=ver*4+17;
-  finder(m,0,0);finder(m,0,S-7);finder(m,S-7,0);
-  timing(m);alignment(m,ver);darkModule(m,ver);
-  placeData(m,enc.data);
-  var bestMask=0,bestPenalty=Infinity;
-  for(var mask=0;mask<8;mask++){
-    var copy=m.map(function(row){return new Uint8Array(row);});
-    applyMask(copy,mask);
-    formatInfo(copy,enc.ecl,mask);
-    var pen=penalty(copy);
-    if(pen<bestPenalty){bestPenalty=pen;bestMask=mask;}
-  }
-  applyMask(m,bestMask);
-  formatInfo(m,enc.ecl,bestMask);
-  return m;
-}
-function penalty(m){
-  var p=0;
-  // Rule 1: 5+ in a row
-  for(var r=0;r<S;r++){var run=1,last=m[r][0]&1;for(var c=1;c<S;c++){var cur=m[r][c]&1;if(cur===last)run++;else{if(run>=5)p+=run-2;run=1;last=cur;}}if(run>=5)p+=run-2;}
-  for(var c=0;c<S;c++){var run=1,last=m[0][c]&1;for(var r=1;r<S;r++){var cur=m[r][c]&1;if(cur===last)run++;else{if(run>=5)p+=run-2;run=1;last=cur;}}if(run>=5)p+=run-2;}
-  // Rule 2: 2x2 blocks
-  for(var r=0;r<S-1;r++)for(var c=0;c<S-1;c++){var v=m[r][c]&1;if(v===(m[r][c+1]&1)&&v===(m[r+1][c]&1)&&v===(m[r+1][c+1]&1))p+=3;}
-  return p;
-}
-/* -------- Canvas render -------- */
-function drawQR(canvas,text,size){
-  var qm;
-  try{qm=buildQR(text,'M');}catch(e){qm=buildQR(text.substring(0,30),'L');}
-  var mod=qm.length;
-  var cell=Math.floor(size/mod);
-  var off=Math.floor((size-mod*cell)/2);
-  canvas.width=size;canvas.height=size;
-  var ctx=canvas.getContext('2d');
-  ctx.fillStyle='#fff';ctx.fillRect(0,0,size,size);
-  ctx.fillStyle='#000';
-  for(var r=0;r<mod;r++)for(var c=0;c<mod;c++){
-    if((qm[r][c]&1)===1)ctx.fillRect(off+c*cell,off+r*cell,cell,cell);
-  }
-}
-function genQRCanvas(text,size){
-  var cv=document.createElement('canvas');
-  drawQR(cv,text,size||200);
-  return cv;
-}
-// Polyfill de la API QRCode para compatibilidad con el código existente
-root.QRCode=function(el,opts){
-  var text=typeof opts==='string'?opts:opts.text;
-  var size=(opts&&opts.width)||200;
-  var cv=genQRCanvas(text,size);
-  el.innerHTML='';
-  el.appendChild(cv);
-  // También crear img para compatibilidad
-  var img=document.createElement('img');
-  img.src=cv.toDataURL();
-  img.style.width=size+'px';img.style.height=size+'px';
-  // No agregamos img, el canvas ya es suficiente
-};
-root.QRCode.CorrectLevel={L:0,M:1,Q:2,H:3};
-root.drawQR=drawQR;
-root.genQRCanvas=genQRCanvas;
-}(window));
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // qrcode.stringToBytes
+  //---------------------------------------------------------------------
+
+  qrcode.stringToBytesFuncs = {
+    'default' : function(s) {
+      var bytes = [];
+      for (var i = 0; i < s.length; i += 1) {
+        var c = s.charCodeAt(i);
+        bytes.push(c & 0xff);
+      }
+      return bytes;
+    }
+  };
+
+  qrcode.stringToBytes = qrcode.stringToBytesFuncs['default'];
+
+  //---------------------------------------------------------------------
+  // qrcode.createStringToBytes
+  //---------------------------------------------------------------------
+
+  /**
+   * @param unicodeData base64 string of byte array.
+   * [16bit Unicode],[16bit Bytes], ...
+   * @param numChars
+   */
+  qrcode.createStringToBytes = function(unicodeData, numChars) {
+
+    // create conversion map.
+
+    var unicodeMap = function() {
+
+      var bin = base64DecodeInputStream(unicodeData);
+      var read = function() {
+        var b = bin.read();
+        if (b == -1) throw 'eof';
+        return b;
+      };
+
+      var count = 0;
+      var unicodeMap = {};
+      while (true) {
+        var b0 = bin.read();
+        if (b0 == -1) break;
+        var b1 = read();
+        var b2 = read();
+        var b3 = read();
+        var k = String.fromCharCode( (b0 << 8) | b1);
+        var v = (b2 << 8) | b3;
+        unicodeMap[k] = v;
+        count += 1;
+      }
+      if (count != numChars) {
+        throw count + ' != ' + numChars;
+      }
+
+      return unicodeMap;
+    }();
+
+    var unknownChar = '?'.charCodeAt(0);
+
+    return function(s) {
+      var bytes = [];
+      for (var i = 0; i < s.length; i += 1) {
+        var c = s.charCodeAt(i);
+        if (c < 128) {
+          bytes.push(c);
+        } else {
+          var b = unicodeMap[s.charAt(i)];
+          if (typeof b == 'number') {
+            if ( (b & 0xff) == b) {
+              // 1byte
+              bytes.push(b);
+            } else {
+              // 2bytes
+              bytes.push(b >>> 8);
+              bytes.push(b & 0xff);
+            }
+          } else {
+            bytes.push(unknownChar);
+          }
+        }
+      }
+      return bytes;
+    };
+  };
+
+  //---------------------------------------------------------------------
+  // QRMode
+  //---------------------------------------------------------------------
+
+  var QRMode = {
+    MODE_NUMBER :    1 << 0,
+    MODE_ALPHA_NUM : 1 << 1,
+    MODE_8BIT_BYTE : 1 << 2,
+    MODE_KANJI :     1 << 3
+  };
+
+  //---------------------------------------------------------------------
+  // QRErrorCorrectionLevel
+  //---------------------------------------------------------------------
+
+  var QRErrorCorrectionLevel = {
+    L : 1,
+    M : 0,
+    Q : 3,
+    H : 2
+  };
+
+  //---------------------------------------------------------------------
+  // QRMaskPattern
+  //---------------------------------------------------------------------
+
+  var QRMaskPattern = {
+    PATTERN000 : 0,
+    PATTERN001 : 1,
+    PATTERN010 : 2,
+    PATTERN011 : 3,
+    PATTERN100 : 4,
+    PATTERN101 : 5,
+    PATTERN110 : 6,
+    PATTERN111 : 7
+  };
+
+  //---------------------------------------------------------------------
+  // QRUtil
+  //---------------------------------------------------------------------
+
+  var QRUtil = function() {
+
+    var PATTERN_POSITION_TABLE = [
+      [],
+      [6, 18],
+      [6, 22],
+      [6, 26],
+      [6, 30],
+      [6, 34],
+      [6, 22, 38],
+      [6, 24, 42],
+      [6, 26, 46],
+      [6, 28, 50],
+      [6, 30, 54],
+      [6, 32, 58],
+      [6, 34, 62],
+      [6, 26, 46, 66],
+      [6, 26, 48, 70],
+      [6, 26, 50, 74],
+      [6, 30, 54, 78],
+      [6, 30, 56, 82],
+      [6, 30, 58, 86],
+      [6, 34, 62, 90],
+      [6, 28, 50, 72, 94],
+      [6, 26, 50, 74, 98],
+      [6, 30, 54, 78, 102],
+      [6, 28, 54, 80, 106],
+      [6, 32, 58, 84, 110],
+      [6, 30, 58, 86, 114],
+      [6, 34, 62, 90, 118],
+      [6, 26, 50, 74, 98, 122],
+      [6, 30, 54, 78, 102, 126],
+      [6, 26, 52, 78, 104, 130],
+      [6, 30, 56, 82, 108, 134],
+      [6, 34, 60, 86, 112, 138],
+      [6, 30, 58, 86, 114, 142],
+      [6, 34, 62, 90, 118, 146],
+      [6, 30, 54, 78, 102, 126, 150],
+      [6, 24, 50, 76, 102, 128, 154],
+      [6, 28, 54, 80, 106, 132, 158],
+      [6, 32, 58, 84, 110, 136, 162],
+      [6, 26, 54, 82, 110, 138, 166],
+      [6, 30, 58, 86, 114, 142, 170]
+    ];
+    var G15 = (1 << 10) | (1 << 8) | (1 << 5) | (1 << 4) | (1 << 2) | (1 << 1) | (1 << 0);
+    var G18 = (1 << 12) | (1 << 11) | (1 << 10) | (1 << 9) | (1 << 8) | (1 << 5) | (1 << 2) | (1 << 0);
+    var G15_MASK = (1 << 14) | (1 << 12) | (1 << 10) | (1 << 4) | (1 << 1);
+
+    var _this = {};
+
+    var getBCHDigit = function(data) {
+      var digit = 0;
+      while (data != 0) {
+        digit += 1;
+        data >>>= 1;
+      }
+      return digit;
+    };
+
+    _this.getBCHTypeInfo = function(data) {
+      var d = data << 10;
+      while (getBCHDigit(d) - getBCHDigit(G15) >= 0) {
+        d ^= (G15 << (getBCHDigit(d) - getBCHDigit(G15) ) );
+      }
+      return ( (data << 10) | d) ^ G15_MASK;
+    };
+
+    _this.getBCHTypeNumber = function(data) {
+      var d = data << 12;
+      while (getBCHDigit(d) - getBCHDigit(G18) >= 0) {
+        d ^= (G18 << (getBCHDigit(d) - getBCHDigit(G18) ) );
+      }
+      return (data << 12) | d;
+    };
+
+    _this.getPatternPosition = function(typeNumber) {
+      return PATTERN_POSITION_TABLE[typeNumber - 1];
+    };
+
+    _this.getMaskFunction = function(maskPattern) {
+
+      switch (maskPattern) {
+
+      case QRMaskPattern.PATTERN000 :
+        return function(i, j) { return (i + j) % 2 == 0; };
+      case QRMaskPattern.PATTERN001 :
+        return function(i, j) { return i % 2 == 0; };
+      case QRMaskPattern.PATTERN010 :
+        return function(i, j) { return j % 3 == 0; };
+      case QRMaskPattern.PATTERN011 :
+        return function(i, j) { return (i + j) % 3 == 0; };
+      case QRMaskPattern.PATTERN100 :
+        return function(i, j) { return (Math.floor(i / 2) + Math.floor(j / 3) ) % 2 == 0; };
+      case QRMaskPattern.PATTERN101 :
+        return function(i, j) { return (i * j) % 2 + (i * j) % 3 == 0; };
+      case QRMaskPattern.PATTERN110 :
+        return function(i, j) { return ( (i * j) % 2 + (i * j) % 3) % 2 == 0; };
+      case QRMaskPattern.PATTERN111 :
+        return function(i, j) { return ( (i * j) % 3 + (i + j) % 2) % 2 == 0; };
+
+      default :
+        throw 'bad maskPattern:' + maskPattern;
+      }
+    };
+
+    _this.getErrorCorrectPolynomial = function(errorCorrectLength) {
+      var a = qrPolynomial([1], 0);
+      for (var i = 0; i < errorCorrectLength; i += 1) {
+        a = a.multiply(qrPolynomial([1, QRMath.gexp(i)], 0) );
+      }
+      return a;
+    };
+
+    _this.getLengthInBits = function(mode, type) {
+
+      if (1 <= type && type < 10) {
+
+        // 1 - 9
+
+        switch(mode) {
+        case QRMode.MODE_NUMBER    : return 10;
+        case QRMode.MODE_ALPHA_NUM : return 9;
+        case QRMode.MODE_8BIT_BYTE : return 8;
+        case QRMode.MODE_KANJI     : return 8;
+        default :
+          throw 'mode:' + mode;
+        }
+
+      } else if (type < 27) {
+
+        // 10 - 26
+
+        switch(mode) {
+        case QRMode.MODE_NUMBER    : return 12;
+        case QRMode.MODE_ALPHA_NUM : return 11;
+        case QRMode.MODE_8BIT_BYTE : return 16;
+        case QRMode.MODE_KANJI     : return 10;
+        default :
+          throw 'mode:' + mode;
+        }
+
+      } else if (type < 41) {
+
+        // 27 - 40
+
+        switch(mode) {
+        case QRMode.MODE_NUMBER    : return 14;
+        case QRMode.MODE_ALPHA_NUM : return 13;
+        case QRMode.MODE_8BIT_BYTE : return 16;
+        case QRMode.MODE_KANJI     : return 12;
+        default :
+          throw 'mode:' + mode;
+        }
+
+      } else {
+        throw 'type:' + type;
+      }
+    };
+
+    _this.getLostPoint = function(qrcode) {
+
+      var moduleCount = qrcode.getModuleCount();
+
+      var lostPoint = 0;
+
+      // LEVEL1
+
+      for (var row = 0; row < moduleCount; row += 1) {
+        for (var col = 0; col < moduleCount; col += 1) {
+
+          var sameCount = 0;
+          var dark = qrcode.isDark(row, col);
+
+          for (var r = -1; r <= 1; r += 1) {
+
+            if (row + r < 0 || moduleCount <= row + r) {
+              continue;
+            }
+
+            for (var c = -1; c <= 1; c += 1) {
+
+              if (col + c < 0 || moduleCount <= col + c) {
+                continue;
+              }
+
+              if (r == 0 && c == 0) {
+                continue;
+              }
+
+              if (dark == qrcode.isDark(row + r, col + c) ) {
+                sameCount += 1;
+              }
+            }
+          }
+
+          if (sameCount > 5) {
+            lostPoint += (3 + sameCount - 5);
+          }
+        }
+      };
+
+      // LEVEL2
+
+      for (var row = 0; row < moduleCount - 1; row += 1) {
+        for (var col = 0; col < moduleCount - 1; col += 1) {
+          var count = 0;
+          if (qrcode.isDark(row, col) ) count += 1;
+          if (qrcode.isDark(row + 1, col) ) count += 1;
+          if (qrcode.isDark(row, col + 1) ) count += 1;
+          if (qrcode.isDark(row + 1, col + 1) ) count += 1;
+          if (count == 0 || count == 4) {
+            lostPoint += 3;
+          }
+        }
+      }
+
+      // LEVEL3
+
+      for (var row = 0; row < moduleCount; row += 1) {
+        for (var col = 0; col < moduleCount - 6; col += 1) {
+          if (qrcode.isDark(row, col)
+              && !qrcode.isDark(row, col + 1)
+              &&  qrcode.isDark(row, col + 2)
+              &&  qrcode.isDark(row, col + 3)
+              &&  qrcode.isDark(row, col + 4)
+              && !qrcode.isDark(row, col + 5)
+              &&  qrcode.isDark(row, col + 6) ) {
+            lostPoint += 40;
+          }
+        }
+      }
+
+      for (var col = 0; col < moduleCount; col += 1) {
+        for (var row = 0; row < moduleCount - 6; row += 1) {
+          if (qrcode.isDark(row, col)
+              && !qrcode.isDark(row + 1, col)
+              &&  qrcode.isDark(row + 2, col)
+              &&  qrcode.isDark(row + 3, col)
+              &&  qrcode.isDark(row + 4, col)
+              && !qrcode.isDark(row + 5, col)
+              &&  qrcode.isDark(row + 6, col) ) {
+            lostPoint += 40;
+          }
+        }
+      }
+
+      // LEVEL4
+
+      var darkCount = 0;
+
+      for (var col = 0; col < moduleCount; col += 1) {
+        for (var row = 0; row < moduleCount; row += 1) {
+          if (qrcode.isDark(row, col) ) {
+            darkCount += 1;
+          }
+        }
+      }
+
+      var ratio = Math.abs(100 * darkCount / moduleCount / moduleCount - 50) / 5;
+      lostPoint += ratio * 10;
+
+      return lostPoint;
+    };
+
+    return _this;
+  }();
+
+  //---------------------------------------------------------------------
+  // QRMath
+  //---------------------------------------------------------------------
+
+  var QRMath = function() {
+
+    var EXP_TABLE = new Array(256);
+    var LOG_TABLE = new Array(256);
+
+    // initialize tables
+    for (var i = 0; i < 8; i += 1) {
+      EXP_TABLE[i] = 1 << i;
+    }
+    for (var i = 8; i < 256; i += 1) {
+      EXP_TABLE[i] = EXP_TABLE[i - 4]
+        ^ EXP_TABLE[i - 5]
+        ^ EXP_TABLE[i - 6]
+        ^ EXP_TABLE[i - 8];
+    }
+    for (var i = 0; i < 255; i += 1) {
+      LOG_TABLE[EXP_TABLE[i] ] = i;
+    }
+
+    var _this = {};
+
+    _this.glog = function(n) {
+
+      if (n < 1) {
+        throw 'glog(' + n + ')';
+      }
+
+      return LOG_TABLE[n];
+    };
+
+    _this.gexp = function(n) {
+
+      while (n < 0) {
+        n += 255;
+      }
+
+      while (n >= 256) {
+        n -= 255;
+      }
+
+      return EXP_TABLE[n];
+    };
+
+    return _this;
+  }();
+
+  //---------------------------------------------------------------------
+  // qrPolynomial
+  //---------------------------------------------------------------------
+
+  function qrPolynomial(num, shift) {
+
+    if (typeof num.length == 'undefined') {
+      throw num.length + '/' + shift;
+    }
+
+    var _num = function() {
+      var offset = 0;
+      while (offset < num.length && num[offset] == 0) {
+        offset += 1;
+      }
+      var _num = new Array(num.length - offset + shift);
+      for (var i = 0; i < num.length - offset; i += 1) {
+        _num[i] = num[i + offset];
+      }
+      return _num;
+    }();
+
+    var _this = {};
+
+    _this.getAt = function(index) {
+      return _num[index];
+    };
+
+    _this.getLength = function() {
+      return _num.length;
+    };
+
+    _this.multiply = function(e) {
+
+      var num = new Array(_this.getLength() + e.getLength() - 1);
+
+      for (var i = 0; i < _this.getLength(); i += 1) {
+        for (var j = 0; j < e.getLength(); j += 1) {
+          num[i + j] ^= QRMath.gexp(QRMath.glog(_this.getAt(i) ) + QRMath.glog(e.getAt(j) ) );
+        }
+      }
+
+      return qrPolynomial(num, 0);
+    };
+
+    _this.mod = function(e) {
+
+      if (_this.getLength() - e.getLength() < 0) {
+        return _this;
+      }
+
+      var ratio = QRMath.glog(_this.getAt(0) ) - QRMath.glog(e.getAt(0) );
+
+      var num = new Array(_this.getLength() );
+      for (var i = 0; i < _this.getLength(); i += 1) {
+        num[i] = _this.getAt(i);
+      }
+
+      for (var i = 0; i < e.getLength(); i += 1) {
+        num[i] ^= QRMath.gexp(QRMath.glog(e.getAt(i) ) + ratio);
+      }
+
+      // recursive call
+      return qrPolynomial(num, 0).mod(e);
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // QRRSBlock
+  //---------------------------------------------------------------------
+
+  var QRRSBlock = function() {
+
+    var RS_BLOCK_TABLE = [
+
+      // L
+      // M
+      // Q
+      // H
+
+      // 1
+      [1, 26, 19],
+      [1, 26, 16],
+      [1, 26, 13],
+      [1, 26, 9],
+
+      // 2
+      [1, 44, 34],
+      [1, 44, 28],
+      [1, 44, 22],
+      [1, 44, 16],
+
+      // 3
+      [1, 70, 55],
+      [1, 70, 44],
+      [2, 35, 17],
+      [2, 35, 13],
+
+      // 4
+      [1, 100, 80],
+      [2, 50, 32],
+      [2, 50, 24],
+      [4, 25, 9],
+
+      // 5
+      [1, 134, 108],
+      [2, 67, 43],
+      [2, 33, 15, 2, 34, 16],
+      [2, 33, 11, 2, 34, 12],
+
+      // 6
+      [2, 86, 68],
+      [4, 43, 27],
+      [4, 43, 19],
+      [4, 43, 15],
+
+      // 7
+      [2, 98, 78],
+      [4, 49, 31],
+      [2, 32, 14, 4, 33, 15],
+      [4, 39, 13, 1, 40, 14],
+
+      // 8
+      [2, 121, 97],
+      [2, 60, 38, 2, 61, 39],
+      [4, 40, 18, 2, 41, 19],
+      [4, 40, 14, 2, 41, 15],
+
+      // 9
+      [2, 146, 116],
+      [3, 58, 36, 2, 59, 37],
+      [4, 36, 16, 4, 37, 17],
+      [4, 36, 12, 4, 37, 13],
+
+      // 10
+      [2, 86, 68, 2, 87, 69],
+      [4, 69, 43, 1, 70, 44],
+      [6, 43, 19, 2, 44, 20],
+      [6, 43, 15, 2, 44, 16],
+
+      // 11
+      [4, 101, 81],
+      [1, 80, 50, 4, 81, 51],
+      [4, 50, 22, 4, 51, 23],
+      [3, 36, 12, 8, 37, 13],
+
+      // 12
+      [2, 116, 92, 2, 117, 93],
+      [6, 58, 36, 2, 59, 37],
+      [4, 46, 20, 6, 47, 21],
+      [7, 42, 14, 4, 43, 15],
+
+      // 13
+      [4, 133, 107],
+      [8, 59, 37, 1, 60, 38],
+      [8, 44, 20, 4, 45, 21],
+      [12, 33, 11, 4, 34, 12],
+
+      // 14
+      [3, 145, 115, 1, 146, 116],
+      [4, 64, 40, 5, 65, 41],
+      [11, 36, 16, 5, 37, 17],
+      [11, 36, 12, 5, 37, 13],
+
+      // 15
+      [5, 109, 87, 1, 110, 88],
+      [5, 65, 41, 5, 66, 42],
+      [5, 54, 24, 7, 55, 25],
+      [11, 36, 12, 7, 37, 13],
+
+      // 16
+      [5, 122, 98, 1, 123, 99],
+      [7, 73, 45, 3, 74, 46],
+      [15, 43, 19, 2, 44, 20],
+      [3, 45, 15, 13, 46, 16],
+
+      // 17
+      [1, 135, 107, 5, 136, 108],
+      [10, 74, 46, 1, 75, 47],
+      [1, 50, 22, 15, 51, 23],
+      [2, 42, 14, 17, 43, 15],
+
+      // 18
+      [5, 150, 120, 1, 151, 121],
+      [9, 69, 43, 4, 70, 44],
+      [17, 50, 22, 1, 51, 23],
+      [2, 42, 14, 19, 43, 15],
+
+      // 19
+      [3, 141, 113, 4, 142, 114],
+      [3, 70, 44, 11, 71, 45],
+      [17, 47, 21, 4, 48, 22],
+      [9, 39, 13, 16, 40, 14],
+
+      // 20
+      [3, 135, 107, 5, 136, 108],
+      [3, 67, 41, 13, 68, 42],
+      [15, 54, 24, 5, 55, 25],
+      [15, 43, 15, 10, 44, 16],
+
+      // 21
+      [4, 144, 116, 4, 145, 117],
+      [17, 68, 42],
+      [17, 50, 22, 6, 51, 23],
+      [19, 46, 16, 6, 47, 17],
+
+      // 22
+      [2, 139, 111, 7, 140, 112],
+      [17, 74, 46],
+      [7, 54, 24, 16, 55, 25],
+      [34, 37, 13],
+
+      // 23
+      [4, 151, 121, 5, 152, 122],
+      [4, 75, 47, 14, 76, 48],
+      [11, 54, 24, 14, 55, 25],
+      [16, 45, 15, 14, 46, 16],
+
+      // 24
+      [6, 147, 117, 4, 148, 118],
+      [6, 73, 45, 14, 74, 46],
+      [11, 54, 24, 16, 55, 25],
+      [30, 46, 16, 2, 47, 17],
+
+      // 25
+      [8, 132, 106, 4, 133, 107],
+      [8, 75, 47, 13, 76, 48],
+      [7, 54, 24, 22, 55, 25],
+      [22, 45, 15, 13, 46, 16],
+
+      // 26
+      [10, 142, 114, 2, 143, 115],
+      [19, 74, 46, 4, 75, 47],
+      [28, 50, 22, 6, 51, 23],
+      [33, 46, 16, 4, 47, 17],
+
+      // 27
+      [8, 152, 122, 4, 153, 123],
+      [22, 73, 45, 3, 74, 46],
+      [8, 53, 23, 26, 54, 24],
+      [12, 45, 15, 28, 46, 16],
+
+      // 28
+      [3, 147, 117, 10, 148, 118],
+      [3, 73, 45, 23, 74, 46],
+      [4, 54, 24, 31, 55, 25],
+      [11, 45, 15, 31, 46, 16],
+
+      // 29
+      [7, 146, 116, 7, 147, 117],
+      [21, 73, 45, 7, 74, 46],
+      [1, 53, 23, 37, 54, 24],
+      [19, 45, 15, 26, 46, 16],
+
+      // 30
+      [5, 145, 115, 10, 146, 116],
+      [19, 75, 47, 10, 76, 48],
+      [15, 54, 24, 25, 55, 25],
+      [23, 45, 15, 25, 46, 16],
+
+      // 31
+      [13, 145, 115, 3, 146, 116],
+      [2, 74, 46, 29, 75, 47],
+      [42, 54, 24, 1, 55, 25],
+      [23, 45, 15, 28, 46, 16],
+
+      // 32
+      [17, 145, 115],
+      [10, 74, 46, 23, 75, 47],
+      [10, 54, 24, 35, 55, 25],
+      [19, 45, 15, 35, 46, 16],
+
+      // 33
+      [17, 145, 115, 1, 146, 116],
+      [14, 74, 46, 21, 75, 47],
+      [29, 54, 24, 19, 55, 25],
+      [11, 45, 15, 46, 46, 16],
+
+      // 34
+      [13, 145, 115, 6, 146, 116],
+      [14, 74, 46, 23, 75, 47],
+      [44, 54, 24, 7, 55, 25],
+      [59, 46, 16, 1, 47, 17],
+
+      // 35
+      [12, 151, 121, 7, 152, 122],
+      [12, 75, 47, 26, 76, 48],
+      [39, 54, 24, 14, 55, 25],
+      [22, 45, 15, 41, 46, 16],
+
+      // 36
+      [6, 151, 121, 14, 152, 122],
+      [6, 75, 47, 34, 76, 48],
+      [46, 54, 24, 10, 55, 25],
+      [2, 45, 15, 64, 46, 16],
+
+      // 37
+      [17, 152, 122, 4, 153, 123],
+      [29, 74, 46, 14, 75, 47],
+      [49, 54, 24, 10, 55, 25],
+      [24, 45, 15, 46, 46, 16],
+
+      // 38
+      [4, 152, 122, 18, 153, 123],
+      [13, 74, 46, 32, 75, 47],
+      [48, 54, 24, 14, 55, 25],
+      [42, 45, 15, 32, 46, 16],
+
+      // 39
+      [20, 147, 117, 4, 148, 118],
+      [40, 75, 47, 7, 76, 48],
+      [43, 54, 24, 22, 55, 25],
+      [10, 45, 15, 67, 46, 16],
+
+      // 40
+      [19, 148, 118, 6, 149, 119],
+      [18, 75, 47, 31, 76, 48],
+      [34, 54, 24, 34, 55, 25],
+      [20, 45, 15, 61, 46, 16]
+    ];
+
+    var qrRSBlock = function(totalCount, dataCount) {
+      var _this = {};
+      _this.totalCount = totalCount;
+      _this.dataCount = dataCount;
+      return _this;
+    };
+
+    var _this = {};
+
+    var getRsBlockTable = function(typeNumber, errorCorrectionLevel) {
+
+      switch(errorCorrectionLevel) {
+      case QRErrorCorrectionLevel.L :
+        return RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 0];
+      case QRErrorCorrectionLevel.M :
+        return RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 1];
+      case QRErrorCorrectionLevel.Q :
+        return RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 2];
+      case QRErrorCorrectionLevel.H :
+        return RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 3];
+      default :
+        return undefined;
+      }
+    };
+
+    _this.getRSBlocks = function(typeNumber, errorCorrectionLevel) {
+
+      var rsBlock = getRsBlockTable(typeNumber, errorCorrectionLevel);
+
+      if (typeof rsBlock == 'undefined') {
+        throw 'bad rs block @ typeNumber:' + typeNumber +
+            '/errorCorrectionLevel:' + errorCorrectionLevel;
+      }
+
+      var length = rsBlock.length / 3;
+
+      var list = [];
+
+      for (var i = 0; i < length; i += 1) {
+
+        var count = rsBlock[i * 3 + 0];
+        var totalCount = rsBlock[i * 3 + 1];
+        var dataCount = rsBlock[i * 3 + 2];
+
+        for (var j = 0; j < count; j += 1) {
+          list.push(qrRSBlock(totalCount, dataCount) );
+        }
+      }
+
+      return list;
+    };
+
+    return _this;
+  }();
+
+  //---------------------------------------------------------------------
+  // qrBitBuffer
+  //---------------------------------------------------------------------
+
+  var qrBitBuffer = function() {
+
+    var _buffer = [];
+    var _length = 0;
+
+    var _this = {};
+
+    _this.getBuffer = function() {
+      return _buffer;
+    };
+
+    _this.getAt = function(index) {
+      var bufIndex = Math.floor(index / 8);
+      return ( (_buffer[bufIndex] >>> (7 - index % 8) ) & 1) == 1;
+    };
+
+    _this.put = function(num, length) {
+      for (var i = 0; i < length; i += 1) {
+        _this.putBit( ( (num >>> (length - i - 1) ) & 1) == 1);
+      }
+    };
+
+    _this.getLengthInBits = function() {
+      return _length;
+    };
+
+    _this.putBit = function(bit) {
+
+      var bufIndex = Math.floor(_length / 8);
+      if (_buffer.length <= bufIndex) {
+        _buffer.push(0);
+      }
+
+      if (bit) {
+        _buffer[bufIndex] |= (0x80 >>> (_length % 8) );
+      }
+
+      _length += 1;
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // qrNumber
+  //---------------------------------------------------------------------
+
+  var qrNumber = function(data) {
+
+    var _mode = QRMode.MODE_NUMBER;
+    var _data = data;
+
+    var _this = {};
+
+    _this.getMode = function() {
+      return _mode;
+    };
+
+    _this.getLength = function(buffer) {
+      return _data.length;
+    };
+
+    _this.write = function(buffer) {
+
+      var data = _data;
+
+      var i = 0;
+
+      while (i + 2 < data.length) {
+        buffer.put(strToNum(data.substring(i, i + 3) ), 10);
+        i += 3;
+      }
+
+      if (i < data.length) {
+        if (data.length - i == 1) {
+          buffer.put(strToNum(data.substring(i, i + 1) ), 4);
+        } else if (data.length - i == 2) {
+          buffer.put(strToNum(data.substring(i, i + 2) ), 7);
+        }
+      }
+    };
+
+    var strToNum = function(s) {
+      var num = 0;
+      for (var i = 0; i < s.length; i += 1) {
+        num = num * 10 + chatToNum(s.charAt(i) );
+      }
+      return num;
+    };
+
+    var chatToNum = function(c) {
+      if ('0' <= c && c <= '9') {
+        return c.charCodeAt(0) - '0'.charCodeAt(0);
+      }
+      throw 'illegal char :' + c;
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // qrAlphaNum
+  //---------------------------------------------------------------------
+
+  var qrAlphaNum = function(data) {
+
+    var _mode = QRMode.MODE_ALPHA_NUM;
+    var _data = data;
+
+    var _this = {};
+
+    _this.getMode = function() {
+      return _mode;
+    };
+
+    _this.getLength = function(buffer) {
+      return _data.length;
+    };
+
+    _this.write = function(buffer) {
+
+      var s = _data;
+
+      var i = 0;
+
+      while (i + 1 < s.length) {
+        buffer.put(
+          getCode(s.charAt(i) ) * 45 +
+          getCode(s.charAt(i + 1) ), 11);
+        i += 2;
+      }
+
+      if (i < s.length) {
+        buffer.put(getCode(s.charAt(i) ), 6);
+      }
+    };
+
+    var getCode = function(c) {
+
+      if ('0' <= c && c <= '9') {
+        return c.charCodeAt(0) - '0'.charCodeAt(0);
+      } else if ('A' <= c && c <= 'Z') {
+        return c.charCodeAt(0) - 'A'.charCodeAt(0) + 10;
+      } else {
+        switch (c) {
+        case ' ' : return 36;
+        case '$' : return 37;
+        case '%' : return 38;
+        case '*' : return 39;
+        case '+' : return 40;
+        case '-' : return 41;
+        case '.' : return 42;
+        case '/' : return 43;
+        case ':' : return 44;
+        default :
+          throw 'illegal char :' + c;
+        }
+      }
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // qr8BitByte
+  //---------------------------------------------------------------------
+
+  var qr8BitByte = function(data) {
+
+    var _mode = QRMode.MODE_8BIT_BYTE;
+    var _data = data;
+    var _bytes = qrcode.stringToBytes(data);
+
+    var _this = {};
+
+    _this.getMode = function() {
+      return _mode;
+    };
+
+    _this.getLength = function(buffer) {
+      return _bytes.length;
+    };
+
+    _this.write = function(buffer) {
+      for (var i = 0; i < _bytes.length; i += 1) {
+        buffer.put(_bytes[i], 8);
+      }
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // qrKanji
+  //---------------------------------------------------------------------
+
+  var qrKanji = function(data) {
+
+    var _mode = QRMode.MODE_KANJI;
+    var _data = data;
+
+    var stringToBytes = qrcode.stringToBytesFuncs['SJIS'];
+    if (!stringToBytes) {
+      throw 'sjis not supported.';
+    }
+    !function(c, code) {
+      // self test for sjis support.
+      var test = stringToBytes(c);
+      if (test.length != 2 || ( (test[0] << 8) | test[1]) != code) {
+        throw 'sjis not supported.';
+      }
+    }('\u53cb', 0x9746);
+
+    var _bytes = stringToBytes(data);
+
+    var _this = {};
+
+    _this.getMode = function() {
+      return _mode;
+    };
+
+    _this.getLength = function(buffer) {
+      return ~~(_bytes.length / 2);
+    };
+
+    _this.write = function(buffer) {
+
+      var data = _bytes;
+
+      var i = 0;
+
+      while (i + 1 < data.length) {
+
+        var c = ( (0xff & data[i]) << 8) | (0xff & data[i + 1]);
+
+        if (0x8140 <= c && c <= 0x9FFC) {
+          c -= 0x8140;
+        } else if (0xE040 <= c && c <= 0xEBBF) {
+          c -= 0xC140;
+        } else {
+          throw 'illegal char at ' + (i + 1) + '/' + c;
+        }
+
+        c = ( (c >>> 8) & 0xff) * 0xC0 + (c & 0xff);
+
+        buffer.put(c, 13);
+
+        i += 2;
+      }
+
+      if (i < data.length) {
+        throw 'illegal char at ' + (i + 1);
+      }
+    };
+
+    return _this;
+  };
+
+  //=====================================================================
+  // GIF Support etc.
+  //
+
+  //---------------------------------------------------------------------
+  // byteArrayOutputStream
+  //---------------------------------------------------------------------
+
+  var byteArrayOutputStream = function() {
+
+    var _bytes = [];
+
+    var _this = {};
+
+    _this.writeByte = function(b) {
+      _bytes.push(b & 0xff);
+    };
+
+    _this.writeShort = function(i) {
+      _this.writeByte(i);
+      _this.writeByte(i >>> 8);
+    };
+
+    _this.writeBytes = function(b, off, len) {
+      off = off || 0;
+      len = len || b.length;
+      for (var i = 0; i < len; i += 1) {
+        _this.writeByte(b[i + off]);
+      }
+    };
+
+    _this.writeString = function(s) {
+      for (var i = 0; i < s.length; i += 1) {
+        _this.writeByte(s.charCodeAt(i) );
+      }
+    };
+
+    _this.toByteArray = function() {
+      return _bytes;
+    };
+
+    _this.toString = function() {
+      var s = '';
+      s += '[';
+      for (var i = 0; i < _bytes.length; i += 1) {
+        if (i > 0) {
+          s += ',';
+        }
+        s += _bytes[i];
+      }
+      s += ']';
+      return s;
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // base64EncodeOutputStream
+  //---------------------------------------------------------------------
+
+  var base64EncodeOutputStream = function() {
+
+    var _buffer = 0;
+    var _buflen = 0;
+    var _length = 0;
+    var _base64 = '';
+
+    var _this = {};
+
+    var writeEncoded = function(b) {
+      _base64 += String.fromCharCode(encode(b & 0x3f) );
+    };
+
+    var encode = function(n) {
+      if (n < 0) {
+        // error.
+      } else if (n < 26) {
+        return 0x41 + n;
+      } else if (n < 52) {
+        return 0x61 + (n - 26);
+      } else if (n < 62) {
+        return 0x30 + (n - 52);
+      } else if (n == 62) {
+        return 0x2b;
+      } else if (n == 63) {
+        return 0x2f;
+      }
+      throw 'n:' + n;
+    };
+
+    _this.writeByte = function(n) {
+
+      _buffer = (_buffer << 8) | (n & 0xff);
+      _buflen += 8;
+      _length += 1;
+
+      while (_buflen >= 6) {
+        writeEncoded(_buffer >>> (_buflen - 6) );
+        _buflen -= 6;
+      }
+    };
+
+    _this.flush = function() {
+
+      if (_buflen > 0) {
+        writeEncoded(_buffer << (6 - _buflen) );
+        _buffer = 0;
+        _buflen = 0;
+      }
+
+      if (_length % 3 != 0) {
+        // padding
+        var padlen = 3 - _length % 3;
+        for (var i = 0; i < padlen; i += 1) {
+          _base64 += '=';
+        }
+      }
+    };
+
+    _this.toString = function() {
+      return _base64;
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // base64DecodeInputStream
+  //---------------------------------------------------------------------
+
+  var base64DecodeInputStream = function(str) {
+
+    var _str = str;
+    var _pos = 0;
+    var _buffer = 0;
+    var _buflen = 0;
+
+    var _this = {};
+
+    _this.read = function() {
+
+      while (_buflen < 8) {
+
+        if (_pos >= _str.length) {
+          if (_buflen == 0) {
+            return -1;
+          }
+          throw 'unexpected end of file./' + _buflen;
+        }
+
+        var c = _str.charAt(_pos);
+        _pos += 1;
+
+        if (c == '=') {
+          _buflen = 0;
+          return -1;
+        } else if (c.match(/^\s$/) ) {
+          // ignore if whitespace.
+          continue;
+        }
+
+        _buffer = (_buffer << 6) | decode(c.charCodeAt(0) );
+        _buflen += 6;
+      }
+
+      var n = (_buffer >>> (_buflen - 8) ) & 0xff;
+      _buflen -= 8;
+      return n;
+    };
+
+    var decode = function(c) {
+      if (0x41 <= c && c <= 0x5a) {
+        return c - 0x41;
+      } else if (0x61 <= c && c <= 0x7a) {
+        return c - 0x61 + 26;
+      } else if (0x30 <= c && c <= 0x39) {
+        return c - 0x30 + 52;
+      } else if (c == 0x2b) {
+        return 62;
+      } else if (c == 0x2f) {
+        return 63;
+      } else {
+        throw 'c:' + c;
+      }
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // gifImage (B/W)
+  //---------------------------------------------------------------------
+
+  var gifImage = function(width, height) {
+
+    var _width = width;
+    var _height = height;
+    var _data = new Array(width * height);
+
+    var _this = {};
+
+    _this.setPixel = function(x, y, pixel) {
+      _data[y * _width + x] = pixel;
+    };
+
+    _this.write = function(out) {
+
+      //---------------------------------
+      // GIF Signature
+
+      out.writeString('GIF87a');
+
+      //---------------------------------
+      // Screen Descriptor
+
+      out.writeShort(_width);
+      out.writeShort(_height);
+
+      out.writeByte(0x80); // 2bit
+      out.writeByte(0);
+      out.writeByte(0);
+
+      //---------------------------------
+      // Global Color Map
+
+      // black
+      out.writeByte(0x00);
+      out.writeByte(0x00);
+      out.writeByte(0x00);
+
+      // white
+      out.writeByte(0xff);
+      out.writeByte(0xff);
+      out.writeByte(0xff);
+
+      //---------------------------------
+      // Image Descriptor
+
+      out.writeString(',');
+      out.writeShort(0);
+      out.writeShort(0);
+      out.writeShort(_width);
+      out.writeShort(_height);
+      out.writeByte(0);
+
+      //---------------------------------
+      // Local Color Map
+
+      //---------------------------------
+      // Raster Data
+
+      var lzwMinCodeSize = 2;
+      var raster = getLZWRaster(lzwMinCodeSize);
+
+      out.writeByte(lzwMinCodeSize);
+
+      var offset = 0;
+
+      while (raster.length - offset > 255) {
+        out.writeByte(255);
+        out.writeBytes(raster, offset, 255);
+        offset += 255;
+      }
+
+      out.writeByte(raster.length - offset);
+      out.writeBytes(raster, offset, raster.length - offset);
+      out.writeByte(0x00);
+
+      //---------------------------------
+      // GIF Terminator
+      out.writeString(';');
+    };
+
+    var bitOutputStream = function(out) {
+
+      var _out = out;
+      var _bitLength = 0;
+      var _bitBuffer = 0;
+
+      var _this = {};
+
+      _this.write = function(data, length) {
+
+        if ( (data >>> length) != 0) {
+          throw 'length over';
+        }
+
+        while (_bitLength + length >= 8) {
+          _out.writeByte(0xff & ( (data << _bitLength) | _bitBuffer) );
+          length -= (8 - _bitLength);
+          data >>>= (8 - _bitLength);
+          _bitBuffer = 0;
+          _bitLength = 0;
+        }
+
+        _bitBuffer = (data << _bitLength) | _bitBuffer;
+        _bitLength = _bitLength + length;
+      };
+
+      _this.flush = function() {
+        if (_bitLength > 0) {
+          _out.writeByte(_bitBuffer);
+        }
+      };
+
+      return _this;
+    };
+
+    var getLZWRaster = function(lzwMinCodeSize) {
+
+      var clearCode = 1 << lzwMinCodeSize;
+      var endCode = (1 << lzwMinCodeSize) + 1;
+      var bitLength = lzwMinCodeSize + 1;
+
+      // Setup LZWTable
+      var table = lzwTable();
+
+      for (var i = 0; i < clearCode; i += 1) {
+        table.add(String.fromCharCode(i) );
+      }
+      table.add(String.fromCharCode(clearCode) );
+      table.add(String.fromCharCode(endCode) );
+
+      var byteOut = byteArrayOutputStream();
+      var bitOut = bitOutputStream(byteOut);
+
+      // clear code
+      bitOut.write(clearCode, bitLength);
+
+      var dataIndex = 0;
+
+      var s = String.fromCharCode(_data[dataIndex]);
+      dataIndex += 1;
+
+      while (dataIndex < _data.length) {
+
+        var c = String.fromCharCode(_data[dataIndex]);
+        dataIndex += 1;
+
+        if (table.contains(s + c) ) {
+
+          s = s + c;
+
+        } else {
+
+          bitOut.write(table.indexOf(s), bitLength);
+
+          if (table.size() < 0xfff) {
+
+            if (table.size() == (1 << bitLength) ) {
+              bitLength += 1;
+            }
+
+            table.add(s + c);
+          }
+
+          s = c;
+        }
+      }
+
+      bitOut.write(table.indexOf(s), bitLength);
+
+      // end code
+      bitOut.write(endCode, bitLength);
+
+      bitOut.flush();
+
+      return byteOut.toByteArray();
+    };
+
+    var lzwTable = function() {
+
+      var _map = {};
+      var _size = 0;
+
+      var _this = {};
+
+      _this.add = function(key) {
+        if (_this.contains(key) ) {
+          throw 'dup key:' + key;
+        }
+        _map[key] = _size;
+        _size += 1;
+      };
+
+      _this.size = function() {
+        return _size;
+      };
+
+      _this.indexOf = function(key) {
+        return _map[key];
+      };
+
+      _this.contains = function(key) {
+        return typeof _map[key] != 'undefined';
+      };
+
+      return _this;
+    };
+
+    return _this;
+  };
+
+  var createDataURL = function(width, height, getPixel) {
+    var gif = gifImage(width, height);
+    for (var y = 0; y < height; y += 1) {
+      for (var x = 0; x < width; x += 1) {
+        gif.setPixel(x, y, getPixel(x, y) );
+      }
+    }
+
+    var b = byteArrayOutputStream();
+    gif.write(b);
+
+    var base64 = base64EncodeOutputStream();
+    var bytes = b.toByteArray();
+    for (var i = 0; i < bytes.length; i += 1) {
+      base64.writeByte(bytes[i]);
+    }
+    base64.flush();
+
+    return 'data:image/gif;base64,' + base64;
+  };
+
+  //---------------------------------------------------------------------
+  // returns qrcode function.
+
+  return qrcode;
+}();
+
+// multibyte support
+!function() {
+
+  qrcode.stringToBytesFuncs['UTF-8'] = function(s) {
+    // http://stackoverflow.com/questions/18729405/how-to-convert-utf8-string-to-byte-array
+    function toUTF8Array(str) {
+      var utf8 = [];
+      for (var i=0; i < str.length; i++) {
+        var charcode = str.charCodeAt(i);
+        if (charcode < 0x80) utf8.push(charcode);
+        else if (charcode < 0x800) {
+          utf8.push(0xc0 | (charcode >> 6),
+              0x80 | (charcode & 0x3f));
+        }
+        else if (charcode < 0xd800 || charcode >= 0xe000) {
+          utf8.push(0xe0 | (charcode >> 12),
+              0x80 | ((charcode>>6) & 0x3f),
+              0x80 | (charcode & 0x3f));
+        }
+        // surrogate pair
+        else {
+          i++;
+          // UTF-16 encodes 0x10000-0x10FFFF by
+          // subtracting 0x10000 and splitting the
+          // 20 bits of 0x0-0xFFFFF into two halves
+          charcode = 0x10000 + (((charcode & 0x3ff)<<10)
+            | (str.charCodeAt(i) & 0x3ff));
+          utf8.push(0xf0 | (charcode >>18),
+              0x80 | ((charcode>>12) & 0x3f),
+              0x80 | ((charcode>>6) & 0x3f),
+              0x80 | (charcode & 0x3f));
+        }
+      }
+      return utf8;
+    }
+    return toUTF8Array(s);
+  };
+
+}();
+
+// Make globally available
+if(typeof window !== "undefined") window.qrcode = qrcode;
+
+// ── Wrapper: adapta qrcode-generator a la API QRCode que usa el código ──
+(function(){
+  // qrcode-generator expone la función global 'qrcode'
+  // Creamos el polyfill QRCode compatible con qrcodejs
+  window.QRCode = function(el, opts) {
+    var text = (typeof opts === 'string') ? opts : opts.text;
+    var width = (opts && opts.width) || 200;
+    var height = (opts && opts.height) || width;
+    var ecl = (opts && opts.correctLevel !== undefined) ? opts.correctLevel : 1; // M
+    var eclMap = {0:'L', 1:'M', 2:'Q', 3:'H'};
+    var eclStr = eclMap[ecl] || 'M';
+    try {
+      var qr = qrcode(0, eclStr);  // typeNumber=0 → auto
+      qr.addData(text, 'Byte');
+      qr.make();
+      var modules = qr.getModuleCount();
+      var cv = document.createElement('canvas');
+      var cell = Math.max(1, Math.floor(Math.min(width, height) / (modules + 8)));
+      var margin = Math.floor(cell * 4);
+      var sz = modules * cell + margin * 2;
+      cv.width = sz; cv.height = sz;
+      var ctx = cv.getContext('2d');
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, sz, sz);
+      ctx.fillStyle = '#000000';
+      for (var r = 0; r < modules; r++) {
+        for (var c = 0; c < modules; c++) {
+          if (qr.isDark(r, c)) {
+            ctx.fillRect(margin + c * cell, margin + r * cell, cell, cell);
+          }
+        }
+      }
+      el.innerHTML = '';
+      el.appendChild(cv);
+    } catch(e) {
+      el.textContent = text.substring(0, 12);
+      console.warn('QR error:', e);
+    }
+  };
+  window.QRCode.CorrectLevel = {L: 0, M: 1, Q: 2, H: 3};
+
+  // Helper directo para canvas (usado en showQRModal)
+  window.drawQRToCanvas = function(canvas, text, size) {
+    try {
+      var qr = qrcode(0, 'M');
+      qr.addData(text, 'Byte');
+      qr.make();
+      var modules = qr.getModuleCount();
+      var cell = Math.max(1, Math.floor((size - 16) / (modules)));
+      var margin = Math.floor((size - modules * cell) / 2);
+      canvas.width = size; canvas.height = size;
+      var ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, size, size);
+      ctx.fillStyle = '#000000';
+      for (var r = 0; r < modules; r++) {
+        for (var c = 0; c < modules; c++) {
+          if (qr.isDark(r, c)) ctx.fillRect(margin + c * cell, margin + r * cell, cell, cell);
+        }
+      }
+    } catch(e) { console.warn('QR canvas error:', e); }
+  };
+})();
+
 </script>
 <!-- Mapa SVG inline — sin dependencias externas -->
 </head>
@@ -486,6 +2678,8 @@ root.genQRCanvas=genQRCanvas;
   <button class="nav-btn" onclick="showTab('kpi',this)">📊 KPI del Día</button>
   <button class="nav-btn" onclick="showTab('picking',this)">📱 Pre-Picking</button>
   <button class="nav-btn" onclick="showTab('consulta',this)" style="border-bottom-color:#F7941D;color:#F7941D" id="nav-consulta">🔍 Consulta Pedidos</button>
+  <button class="nav-btn" onclick="showTab('vigilancia',this)" style="border-bottom-color:#7C3AED;color:#7C3AED" id="nav-vigilancia">🔒 Vigilancia</button>
+  <button class="nav-btn" onclick="showTab('acreditacion',this)" style="border-bottom-color:#059669;color:#059669" id="nav-acreditacion">📸 Acreditación</button>
 </nav>
 
 <main class="main">
@@ -897,10 +3091,21 @@ root.genQRCanvas=genQRCanvas;
   <div class="card" style="margin-bottom:14px">
     <div class="ch" style="background:#F0FDF4;border-left:4px solid #16A34A">
       <span class="ct" style="color:#16A34A">🚛 Por Unidad de Transporte</span>
-      <span id="kpi-tr-total" style="font-size:12px;color:var(--ink-soft)"></span>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span id="kpi-tr-total" style="font-size:12px;color:var(--ink-soft)"></span>
+        <label style="font-size:11px;font-weight:700;color:#374151;white-space:nowrap">Período:</label>
+        <select id="kpi-tr-periodo" onchange="ST.kpi.tr_periodo=this.value;renderKpi()"
+          style="font-size:11px;padding:2px 6px;border:1px solid #D1D5DB;border-radius:6px;background:#fff">
+          <option value="diario" selected>Diario (hoy)</option>
+          <option value="semanal">Semanal</option>
+          <option value="mensual">Mensual</option>
+          <option value="anual">Anual</option>
+        </select>
+        <span id="kpi-tr-periodo-label" style="font-size:10px;color:#6B7280;font-style:italic"></span>
+      </div>
     </div>
     <div class="cb"><div class="tb-wrap"><table id="kpi-tr-tbl">
-      <thead><tr><th>Placa / ID</th><th>Tipo</th><th>Cnt. Productos</th><th>Cnt. Pedidos</th><th>Entregados</th><th>Rechazos</th><th>Efectividad</th><th>Suma de Costo</th></tr></thead>
+      <thead><tr><th>Placa / ID</th><th>Tipo</th><th>Cnt. Productos</th><th>Cnt. Pedidos (BASE)</th><th>Sin Asignar</th><th>Entregados</th><th>Rechazos</th><th>Efectividad</th><th>Suma de Costo</th></tr></thead>
       <tbody id="kpi-tr-body"></tbody>
     </table></div></div>
   </div>
@@ -915,23 +3120,302 @@ root.genQRCanvas=genQRCanvas;
       <tbody id="kpi-trans-body"></tbody>
     </table></div></div>
   </div>
-  <!-- BLOQUE 5: Por Zona / Distrito (top 10) -->
+  <!-- BLOQUE 5: Por Zona / Distrito (top 15) -->
   <div class="card" style="margin-bottom:14px">
     <div class="ch" style="background:#F5F3FF;border-left:4px solid #7C3AED">
       <span class="ct" style="color:#7C3AED">📍 Por Zona — Top 15 Distritos</span>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <label style="font-size:11px;font-weight:700;color:#374151;white-space:nowrap">Período:</label>
+        <select id="kpi-zona-periodo" onchange="ST.kpi.zona_periodo=this.value;renderKpi()"
+          style="font-size:11px;padding:2px 6px;border:1px solid #D1D5DB;border-radius:6px;background:#fff">
+          <option value="diario" selected>Diario (hoy)</option>
+          <option value="semanal">Semanal</option>
+          <option value="mensual">Mensual</option>
+          <option value="anual">Anual</option>
+        </select>
+        <span id="kpi-zona-periodo-label" style="font-size:10px;background:#EDE9FE;color:#6D28D9;padding:2px 8px;border-radius:10px;font-weight:700"></span>
+      </div>
     </div>
     <div class="cb"><div class="tb-wrap"><table>
       <thead><tr><th>Distrito</th><th>Total Pedidos</th><th style="min-width:120px">Volumen</th><th>Entregados</th><th>Rechazos</th><th>En Tránsito</th><th>Efectividad</th><th>Monto Total S/</th></tr></thead>
       <tbody id="kpi-zona-body"></tbody>
     </table></div></div>
   </div>
-  <!-- BLOQUE 6: KPIs manuales (campos que no se calculan solos) -->
+  <!-- BLOQUE 6: KPIs Complementarios — carga de archivos + vigilancia -->
   <div class="card" style="margin-bottom:14px">
     <div class="ch" style="background:#F0FDFA;border-left:4px solid #0D9488">
-      <span class="ct" style="color:#0D9488">✏️ KPIs Complementarios — Cierre de Turno</span>
-      <span style="font-size:11px;color:var(--ink-soft)">Ingresar al cierre del día (9 PM)</span>
+      <span class="ct" style="color:#0D9488">⛽ KPIs Complementarios — Combustible · Peajes · Km</span>
+      <span style="font-size:11px;color:var(--ink-soft)">Sube los vouchers o ingresa manualmente al cierre del día</span>
     </div>
-    <div class="cb"><div id="kpi-manual-grid" class="kg"></div></div>
+    <div class="cb">
+      <!-- Sub-sección: Subir archivos de combustible y peajes -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-bottom:16px">
+        <!-- Combustible -->
+        <div style="border:1px solid #A7F3D0;border-radius:8px;padding:12px;background:#F0FDF4">
+          <div style="font-size:12px;font-weight:700;color:#065F46;margin-bottom:8px">⛽ Ticket Combustible</div>
+          <div style="font-size:11px;color:#374151;margin-bottom:6px">Sube el Excel/CSV del reporte de tarjeta de combustible</div>
+          <input type="file" accept=".xlsx,.xls,.csv" id="file-comb"
+            style="font-size:11px;width:100%;margin-bottom:8px"
+            onchange="lfoKpiComp(this,'comb')">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+            <div>
+              <label style="font-size:10px;font-weight:600;color:#065F46">C1 — Camión 1 (S/)</label>
+              <input type="number" step="0.01" id="ki-comb_c1" placeholder="0.00"
+                value="${ST.kpi.comb_c1||''}"
+                style="width:100%;font-size:12px;padding:4px 6px;border:1px solid #D1D5DB;border-radius:5px;margin-top:2px"
+                oninput="ST.kpi.comb_c1=+this.value;save();renderKpiComplementarios()">
+            </div>
+            <div>
+              <label style="font-size:10px;font-weight:600;color:#065F46">C2 — Camión 2 (S/)</label>
+              <input type="number" step="0.01" id="ki-comb_c2" placeholder="0.00"
+                value="${ST.kpi.comb_c2||''}"
+                style="width:100%;font-size:12px;padding:4px 6px;border:1px solid #D1D5DB;border-radius:5px;margin-top:2px"
+                oninput="ST.kpi.comb_c2=+this.value;save();renderKpiComplementarios()">
+            </div>
+          </div>
+          <div id="kpi-comb-status" style="font-size:10px;color:#059669;margin-top:4px"></div>
+        </div>
+        <!-- Peajes -->
+        <div style="border:1px solid #BFDBFE;border-radius:8px;padding:12px;background:#EFF6FF">
+          <div style="font-size:12px;font-weight:700;color:#1E40AF;margin-bottom:8px">🏁 Vouchers de Peaje</div>
+          <div style="font-size:11px;color:#374151;margin-bottom:6px">Sube el Excel/CSV con los peajes del período</div>
+          <input type="file" accept=".xlsx,.xls,.csv" id="file-peaje"
+            style="font-size:11px;width:100%;margin-bottom:8px"
+            onchange="lfoKpiComp(this,'peaje')">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+            <div>
+              <label style="font-size:10px;font-weight:600;color:#1E40AF">C1 — Camión 1 (S/)</label>
+              <input type="number" step="0.01" id="ki-peaje_c1" placeholder="0.00"
+                value="${ST.kpi.peaje_c1||''}"
+                style="width:100%;font-size:12px;padding:4px 6px;border:1px solid #D1D5DB;border-radius:5px;margin-top:2px"
+                oninput="ST.kpi.peaje_c1=+this.value;save();renderKpiComplementarios()">
+            </div>
+            <div>
+              <label style="font-size:10px;font-weight:600;color:#1E40AF">C2 — Camión 2 (S/)</label>
+              <input type="number" step="0.01" id="ki-peaje_c2" placeholder="0.00"
+                value="${ST.kpi.peaje_c2||''}"
+                style="width:100%;font-size:12px;padding:4px 6px;border:1px solid #D1D5DB;border-radius:5px;margin-top:2px"
+                oninput="ST.kpi.peaje_c2=+this.value;save();renderKpiComplementarios()">
+            </div>
+          </div>
+          <div id="kpi-peaje-status" style="font-size:10px;color:#2563EB;margin-top:4px"></div>
+        </div>
+        <!-- Kilómetros (calculados desde hodómetro en Vigilancia o manual) -->
+        <div style="border:1px solid #E9D5FF;border-radius:8px;padding:12px;background:#F5F3FF">
+          <div style="font-size:12px;font-weight:700;color:#6D28D9;margin-bottom:8px">🛣 Kilómetros Recorridos</div>
+          <div style="font-size:11px;color:#374151;margin-bottom:6px">
+            Auto-calculado desde <strong>Vigilancia → Hodómetro</strong> · o ingresa manual
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+            <div>
+              <label style="font-size:10px;font-weight:600;color:#6D28D9">C1 (km)</label>
+              <input type="number" step="0.1" id="ki-km_c1" placeholder="0.0"
+                value="${ST.kpi.km_c1||''}"
+                style="width:100%;font-size:12px;padding:4px 6px;border:1px solid #D1D5DB;border-radius:5px;margin-top:2px"
+                oninput="ST.kpi.km_c1=+this.value;save();renderKpiComplementarios()">
+            </div>
+            <div>
+              <label style="font-size:10px;font-weight:600;color:#6D28D9">C2 (km)</label>
+              <input type="number" step="0.1" id="ki-km_c2" placeholder="0.0"
+                value="${ST.kpi.km_c2||''}"
+                style="width:100%;font-size:12px;padding:4px 6px;border:1px solid #D1D5DB;border-radius:5px;margin-top:2px"
+                oninput="ST.kpi.km_c2=+this.value;save();renderKpiComplementarios()">
+            </div>
+          </div>
+          <div id="kpi-km-auto" style="font-size:10px;color:#7C3AED;margin-top:4px"></div>
+        </div>
+        <!-- Incidentes y daños -->
+        <div style="border:1px solid #FED7AA;border-radius:8px;padding:12px;background:#FFF7ED">
+          <div style="font-size:12px;font-weight:700;color:#C2410C;margin-bottom:8px">⚠️ Incidencias y Daños</div>
+          <div style="font-size:11px;color:#374151;margin-bottom:6px">
+            Auto-calculado desde <strong>Vigilancia → Incidencias</strong> · o ingresa manual
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+            <div>
+              <label style="font-size:10px;font-weight:600;color:#C2410C">Incidentes</label>
+              <input type="number" step="1" id="ki-incidentes" placeholder="0"
+                value="${ST.kpi.incidentes||''}"
+                style="width:100%;font-size:12px;padding:4px 6px;border:1px solid #D1D5DB;border-radius:5px;margin-top:2px"
+                oninput="ST.kpi.incidentes=+this.value;save();renderKpiComplementarios()">
+            </div>
+            <div>
+              <label style="font-size:10px;font-weight:600;color:#C2410C">Productos Dañados</label>
+              <input type="number" step="1" id="ki-danos" placeholder="0"
+                value="${ST.kpi.danos||''}"
+                style="width:100%;font-size:12px;padding:4px 6px;border:1px solid #D1D5DB;border-radius:5px;margin-top:2px"
+                oninput="ST.kpi.danos=+this.value;save();renderKpiComplementarios()">
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Panel de resultados calculados -->
+      <div id="kpi-manual-grid" style="margin-top:4px"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<!-- PESTAÑA: VIGILANCIA                                    -->
+<!-- ══════════════════════════════════════════════════════ -->
+<section class="sec" id="sec-vigilancia">
+  <div class="ph" style="background:linear-gradient(135deg,#4C1D95 0%,#7C3AED 100%);border-radius:12px;padding:20px 24px;margin-bottom:20px">
+    <h1 style="color:#fff;margin:0 0 6px">🔒 Vigilancia — Control Operativo</h1>
+    <p style="color:#DDD6FE;margin:0;font-size:13px">Hodómetro, incidencias con evidencia fotográfica y registro de devoluciones/casuística</p>
+  </div>
+
+  <!-- Sub-sección A: Hodómetro -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="ch" style="background:#F5F3FF;border-left:4px solid #7C3AED">
+      <span class="ct" style="color:#7C3AED">🛣 Hodómetro por Unidad</span>
+      <span style="font-size:11px;color:var(--ink-soft)">Registrar km inicial y final al inicio/fin de jornada</span>
+    </div>
+    <div class="cb">
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:#F5F3FF">
+              <th style="padding:8px;text-align:left;color:#6D28D9;font-size:11px;white-space:nowrap">Unidad</th>
+              <th style="padding:8px;text-align:center;color:#6D28D9;font-size:11px">Placa</th>
+              <th style="padding:8px;text-align:center;color:#6D28D9;font-size:11px">Km Inicial</th>
+              <th style="padding:8px;text-align:center;color:#6D28D9;font-size:11px">Km Final</th>
+              <th style="padding:8px;text-align:center;color:#6D28D9;font-size:11px">Km Recorridos</th>
+              <th style="padding:8px;text-align:center;color:#6D28D9;font-size:11px">Fecha</th>
+              <th style="padding:8px;text-align:left;color:#6D28D9;font-size:11px">Obs. Hodómetro</th>
+            </tr>
+          </thead>
+          <tbody id="vig-hodometro-body">
+            <!-- Se genera dinámicamente por renderVigilancia() -->
+          </tbody>
+        </table>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn btn-s" onclick="addVigUnidad()">+ Agregar Unidad</button>
+        <button class="btn btn-g btn-sm" onclick="saveVigilancia()">💾 Guardar y Actualizar KPIs</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sub-sección B: Incidencias con Fotos -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="ch" style="background:#FFF7ED;border-left:4px solid #F7941D">
+      <span class="ct" style="color:#C2410C">⚠️ Incidencias en Unidades</span>
+      <span style="font-size:11px;color:var(--ink-soft)">Averías, accidentes, cajas rotas, productos no entregados — incluye evidencia fotográfica</span>
+    </div>
+    <div class="cb">
+      <div id="vig-incidencias-list" style="margin-bottom:10px"></div>
+      <!-- Formulario nueva incidencia -->
+      <div id="vig-inc-form" style="background:#FFFBEB;border:1.5px solid #FCD34D;border-radius:10px;padding:14px;display:none">
+        <div style="font-size:13px;font-weight:700;color:#B45309;margin-bottom:10px">📋 Nueva Incidencia</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:10px">
+          <div>
+            <label style="font-size:10px;font-weight:700;color:#374151;display:block;margin-bottom:4px">UNIDAD</label>
+            <input id="vig-inc-unidad" type="text" placeholder="Ej: C1, M2..." style="width:100%;padding:8px;border:1px solid #D1D5DB;border-radius:7px;font-size:12px;box-sizing:border-box">
+          </div>
+          <div>
+            <label style="font-size:10px;font-weight:700;color:#374151;display:block;margin-bottom:4px">TIPO</label>
+            <select id="vig-inc-tipo" style="width:100%;padding:8px;border:1px solid #D1D5DB;border-radius:7px;font-size:12px;background:#fff">
+              <option value="Avería mecánica">Avería mecánica</option>
+              <option value="Accidente">Accidente</option>
+              <option value="Caja rota / producto dañado">Caja rota / producto dañado</option>
+              <option value="Producto no entregado">Producto no entregado</option>
+              <option value="Retraso en ruta">Retraso en ruta</option>
+              <option value="Robo / Pérdida">Robo / Pérdida</option>
+              <option value="Cliente ausente">Cliente ausente</option>
+              <option value="Dirección incorrecta">Dirección incorrecta</option>
+              <option value="Otro">Otro</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:10px;font-weight:700;color:#374151;display:block;margin-bottom:4px">PEDIDO AFECTADO (OPCIONAL)</label>
+            <input id="vig-inc-pedido" type="text" placeholder="N° pedido" style="width:100%;padding:8px;border:1px solid #D1D5DB;border-radius:7px;font-size:12px;box-sizing:border-box">
+          </div>
+        </div>
+        <div style="margin-bottom:10px">
+          <label style="font-size:10px;font-weight:700;color:#374151;display:block;margin-bottom:4px">DESCRIPCIÓN DE LA INCIDENCIA</label>
+          <textarea id="vig-inc-desc" rows="2" placeholder="Describe detalladamente lo ocurrido..." style="width:100%;padding:8px;border:1px solid #D1D5DB;border-radius:7px;font-size:12px;box-sizing:border-box;resize:vertical"></textarea>
+        </div>
+        <!-- Upload de fotos incidencia -->
+        <div style="margin-bottom:10px">
+          <label style="font-size:10px;font-weight:700;color:#374151;display:block;margin-bottom:6px">📸 FOTOS DE EVIDENCIA (hasta 5 fotos)</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <label style="cursor:pointer;background:#F59E0B;color:#fff;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:6px">
+              📷 Tomar Foto / Elegir
+              <input id="vig-inc-fotos" type="file" accept="image/*" multiple capture="environment" style="display:none" onchange="prevVigIncFotos(this)">
+            </label>
+            <span style="font-size:11px;color:#92400E">Funciona desde celular para abrir cámara directamente</span>
+          </div>
+          <div id="vig-inc-fotos-prev" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"></div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-s" onclick="confirmVigIncidencia()">✅ Guardar Incidencia</button>
+          <button class="btn btn-g btn-sm" onclick="document.getElementById('vig-inc-form').style.display='none'">✖ Cancelar</button>
+        </div>
+      </div>
+      <button class="btn btn-s" onclick="document.getElementById('vig-inc-form').style.display='block';document.getElementById('vig-inc-form').scrollIntoView({behavior:'smooth'})">+ Registrar Incidencia</button>
+    </div>
+  </div>
+
+  <!-- Sub-sección C: Productos Devueltos -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="ch" style="background:#FEF2F2;border-left:4px solid #DC2626">
+      <span class="ct" style="color:#991B1B">📦 Productos Devueltos — Casuística</span>
+      <span style="font-size:11px;color:var(--ink-soft)">Registrar producto, pedido, motivo, daño y responsable</span>
+    </div>
+    <div class="cb">
+      <div id="vig-devoluciones-list" style="margin-bottom:10px"></div>
+      <!-- Formulario devolución -->
+      <div id="vig-dev-form" style="background:#FFF1F2;border:1.5px solid #FCA5A5;border-radius:10px;padding:14px;display:none">
+        <div style="font-size:13px;font-weight:700;color:#991B1B;margin-bottom:10px">📦 Nueva Devolución</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:10px">
+          <div>
+            <label style="font-size:10px;font-weight:700;color:#374151;display:block;margin-bottom:4px">N° PEDIDO</label>
+            <input id="vig-dev-pedido" type="text" placeholder="Número de pedido" style="width:100%;padding:8px;border:1px solid #D1D5DB;border-radius:7px;font-size:12px;box-sizing:border-box">
+          </div>
+          <div>
+            <label style="font-size:10px;font-weight:700;color:#374151;display:block;margin-bottom:4px">CLIENTE</label>
+            <input id="vig-dev-cliente" type="text" placeholder="Nombre cliente" style="width:100%;padding:8px;border:1px solid #D1D5DB;border-radius:7px;font-size:12px;box-sizing:border-box">
+          </div>
+          <div>
+            <label style="font-size:10px;font-weight:700;color:#374151;display:block;margin-bottom:4px">PRODUCTO</label>
+            <input id="vig-dev-producto" type="text" placeholder="Descripción producto" style="width:100%;padding:8px;border:1px solid #D1D5DB;border-radius:7px;font-size:12px;box-sizing:border-box">
+          </div>
+          <div>
+            <label style="font-size:10px;font-weight:700;color:#374151;display:block;margin-bottom:4px">MOTIVO</label>
+            <select id="vig-dev-motivo" style="width:100%;padding:8px;border:1px solid #D1D5DB;border-radius:7px;font-size:12px;background:#fff">
+              <option value="Producto dañado / Caja rota">Producto dañado / Caja rota</option>
+              <option value="Cliente ausente">Cliente ausente</option>
+              <option value="Rechazo de precio">Rechazo de precio</option>
+              <option value="Dirección no encontrada">Dirección no encontrada</option>
+              <option value="Pedido duplicado">Pedido duplicado</option>
+              <option value="Error en pedido">Error en pedido</option>
+              <option value="Zona inaccesible">Zona inaccesible</option>
+              <option value="Sin fondos / Cobranza fallida">Sin fondos / Cobranza fallida</option>
+              <option value="Otro">Otro</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-bottom:10px">
+          <label style="font-size:10px;font-weight:700;color:#374151;display:block;margin-bottom:4px">DETALLE / OBSERVACIÓN</label>
+          <textarea id="vig-dev-detalle" rows="2" placeholder="Observaciones adicionales..." style="width:100%;padding:8px;border:1px solid #D1D5DB;border-radius:7px;font-size:12px;box-sizing:border-box;resize:vertical"></textarea>
+        </div>
+        <div style="margin-bottom:10px">
+          <label style="font-size:10px;font-weight:700;color:#374151;display:block;margin-bottom:6px">📸 FOTO DE EVIDENCIA (opcional)</label>
+          <label style="cursor:pointer;background:#DC2626;color:#fff;padding:8px 14px;border-radius:8px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:6px">
+            📷 Foto producto devuelto
+            <input id="vig-dev-foto" type="file" accept="image/*" capture="environment" style="display:none" onchange="prevVigDevFoto(this)">
+          </label>
+          <div id="vig-dev-foto-prev" style="margin-top:8px"></div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-s" onclick="confirmVigDevolucion()">✅ Guardar Devolución</button>
+          <button class="btn btn-g btn-sm" onclick="document.getElementById('vig-dev-form').style.display='none'">✖ Cancelar</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-s" onclick="document.getElementById('vig-dev-form').style.display='block';document.getElementById('vig-dev-form').scrollIntoView({behavior:'smooth'})">+ Registrar Devolución</button>
+        <button class="btn btn-g btn-sm" onclick="expVigCSV()">📥 Exportar CSV</button>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -1514,8 +3998,9 @@ function lfo(f,t){
           if(nonempty.length>=3){hdrIdx=i;break;}
         }
         const hdrRaw=raw2d[hdrIdx];
-        // Normalizar headers: minúsculas, sin espacios extra, sin tildes en comparación
-        const hdr=hdrRaw.map(h=>String(h||'').toLowerCase().trim());
+        // Normalizar headers: minúsculas, sin tildes, sin espacios extra (usando normH si está disponible)
+        const _nh=typeof normH==='function'?normH:h=>String(h||'').toLowerCase().trim();
+        const hdr=hdrRaw.map(h=>_nh(h));
         console.log('[lfo] Hoja:',sheetName,' headers en fila',hdrIdx,':',hdr);
         // Construir array de objetos con keys normalizadas
         const rows=[];
@@ -1525,6 +4010,8 @@ function lfo(f,t){
           if(!cols.some(v=>v!==null&&v!==undefined&&String(v).trim()!=='')) continue;
           const obj={};
           hdr.forEach((h,ci)=>{if(h)obj[h]=cols[ci]!==undefined&&cols[ci]!==null?String(cols[ci]).trim():'';});
+          // Agregar índice posicional _col_N para fallback cuando el header no coincide
+          cols.forEach((v,ci)=>{obj['_col_'+ci]=v!==undefined&&v!==null?String(v).trim():'';});
           rows.push(obj);
         }
         if(rows.length===0){
@@ -1643,36 +4130,92 @@ function pE(rows){
 }
 
 // --- RPTR ---
+// Helper: normaliza un string para comparación (sin tildes, minúsculas, sin espacios extra)
+function normH(s){return String(s||'').toLowerCase()
+  .replace(/á/g,'a').replace(/é/g,'e').replace(/í/g,'i').replace(/ó/g,'o').replace(/ú/g,'u')
+  .replace(/ñ/g,'n').replace(/°/g,'').replace(/\s+/g,' ').trim();}
+
+// Helper: busca un valor en un objeto de fila por múltiples alias normalizados
+function gR(r,aliases,fallbackCols){
+  // Búsqueda directa por alias normalizados
+  for(const a of aliases){
+    const v=r[a];if(v!==undefined&&v!==null&&String(v).trim()!=='')return String(v).trim();
+    // Buscar con normalización (los headers fueron normalizados en lfo())
+    const vn=r[normH(a)];if(vn!==undefined&&vn!==null&&String(vn).trim()!=='')return String(vn).trim();
+  }
+  // Fallback por índice posicional
+  if(fallbackCols){
+    for(const ci of fallbackCols){
+      const v=r['_col_'+ci];if(v!==undefined&&v!==null&&String(v).trim()!=='')return String(v).trim();
+    }
+  }
+  return '';
+}
+
 function pR(rows){
   let n=0;
+  // Log de columnas disponibles en primera fila (para debug)
+  if(rows.length>0){
+    const sample=rows[0];
+    const keysPos=Object.keys(sample).filter(k=>!k.startsWith('_col_'));
+    const keysNum=Object.keys(sample).filter(k=>k.startsWith('_col_'));
+    console.log('[RPTR] Columnas detectadas:',keysPos);
+    console.log('[RPTR] Valores por posición (primera fila):',
+      keysNum.map(k=>`${k}=${sample[k]}`).join(' | '));
+  }
   rows.forEach(r=>{
-    const num=r['número']||r['numero']||'';
-    const sku=r['código']||r['codigo']||r['cód. sku']||r['cod. sku']||'';
-    const und=parseFloat(r['unidades']||1);
+    // Número de pedido — col A (índice 0) o B (1)
+    const num=gR(r,['numero','número','n° pedido','nro pedido','pedido','nropedido'],[0,1]);
+    // SKU — múltiples variantes
+    const sku=gR(r,['código','codigo','cod. sku','cód. sku','sku','cod sku'],[2,3]);
+    const und=parseFloat(gR(r,['unidades','und','cantidad'],[]) ||1);
     if(!num)return;
     const pd=PESOS[sku]||null;
-    const prod=r['descripción']||r['descripcion']||'';
+    const prod=gR(r,['descripción','descripcion','desc','producto','descripcion producto'],[]);
+    // Fuerza de Venta — col F (índice 5) según informe del usuario
+    const fvNombre=gR(r,[
+      'fuerza','fuerza de venta','fuerza_de_venta','fuerza venta','fuerza_venta',
+      'fza venta','fza. venta','f. venta','fv'
+    ],[5,6]);
+    // Serie de Guía — buscar variantes amplias
+    const serieNombre=gR(r,[
+      'serie guia','serie_guia','serie de guia','serie guía','serie de guía',
+      'serie gr','serie','ser. guia','ser guia'
+    ],[]);
+    // Número de Guía GR — búsqueda muy amplia
+    const nroNombre=gR(r,[
+      'n° guia','nro guia','numero guia','n° guía','nro. guia','nro guía',
+      'nrp guia','guia','guía','n guia','nroguia','numero de guia',
+      'n° de guia','nro de guia','n° gr','nro gr','gr'
+    ],[]);
+
     const ex=ST.pedidos.find(p=>p.numero===num);
     if(ex){
       if(!ex.producto&&prod)ex.producto=prod;
       if(pd&&!ex.peso){ex.peso=pd.p*und;ex.m3=pd.m*und;}
-      if(!ex.placa)ex.placa=r['placa']||'';
-      if(!ex.fuerza_venta){ex.fuerza_venta=(r['fuerza']||r['fuerza de venta']||r['fuerza_de_venta']||'').toUpperCase();}
-      if(!ex.serie_guia){ex.serie_guia=(r['serie guia']||r['serie_guia']||'').toString().trim();}
-      if(!ex.nro_guia){ex.nro_guia=(r['n° guia']||r['nro guia']||r['numero guia']||r['n° guía']||'').toString().trim();}
+      if(!ex.placa)ex.placa=r['placa']||r['_col_7']||'';
+      if(!ex.fuerza_venta||ex.fuerza_venta==='')ex.fuerza_venta=fvNombre.toUpperCase();
+      if(!ex.serie_guia||ex.serie_guia==='')ex.serie_guia=serieNombre;
+      if(!ex.nro_guia||ex.nro_guia==='')ex.nro_guia=nroNombre;
       n++;
     } else {
-      const d=(r['distrito']||'').toUpperCase();const dp=(r['departamento']||'LIMA').toUpperCase();
-      const serieG=(r['serie guia']||r['serie_guia']||'').toString().trim();
-      const nroG=(r['n° guia']||r['nro guia']||r['numero guia']||r['n° guía']||'').toString().trim();
-      ST.pedidos.push(mkP({numero:num,canal:r['p. emis']||'',
-        fuerza_venta:(r['fuerza']||r['fuerza de venta']||r['fuerza_de_venta']||'').toUpperCase(),
-        cliente:r['cliente']||'',
-        tel:r['telefono']||'',distrito:d,depto:dp,
-        dir:r['dirección entrega']||r['direccion entrega']||r['dirección cliente']||'',
-        producto:prod,sku,und,peso:pd?pd.p*und:0,m3:pd?pd.m*und:0,
-        precio:parseFloat(r['precio de venta totales']||0),
-        serie_guia:serieG,nro_guia:nroG,fuente:'RPTR'}));n++;
+      const d=(gR(r,['distrito'],[])  ).toUpperCase();
+      const dp=(gR(r,['departamento'],[]) ||'LIMA').toUpperCase();
+      ST.pedidos.push(mkP({
+        numero:num,
+        canal:gR(r,['p. emis','p.emis','pemis','punto emision'],[]),
+        fuerza_venta:fvNombre.toUpperCase(),
+        cliente:gR(r,['cliente'],[]),
+        tel:gR(r,['telefono','teléfono','tel','celular'],[]),
+        distrito:d,depto:dp,
+        dir:gR(r,['dirección entrega','direccion entrega','dirección cliente','dir. entrega','direccion'],[]),
+        producto:prod,sku,und,
+        peso:pd?pd.p*und:0,m3:pd?pd.m*und:0,
+        precio:parseFloat(gR(r,['precio de venta totales','precio venta','precio total','precio'],[]) ||0),
+        serie_guia:serieNombre,
+        nro_guia:nroNombre,
+        fuente:'RPTR'
+      }));n++;
     }
   });
   ST.cargados.rptr=n;
@@ -3007,15 +5550,14 @@ function renderRutas(){
           // Guía de Remisión: preferir serie_guia-nro_guia, luego nro_guia, luego guia
           const grDisplay=p.serie_guia&&p.nro_guia?`${p.serie_guia}-${p.nro_guia}`:(p.nro_guia||p.guia||'—');
           // QR data: JSON con datos de la GR
+          // QR mínimo: solo datos clave para mantener código pequeño y escaneable
           const qrData=JSON.stringify({
-            fecha: new Date().toLocaleDateString('es-PE'),
-            receptor: p.cliente,
-            nro_guia: grDisplay,
-            pedido: p.numero,
-            sku: p.sku||'',
-            producto: p.producto||'',
-            und: p.und||1,
-            serie: p.serie||''
+            f: new Date().toLocaleDateString('es-PE'),
+            c: (p.cliente||'').substring(0,25),
+            gr: grDisplay,
+            p: p.numero,
+            u: p.und||1,
+            s: (p.serie||'').substring(0,15)
           });
           const qrId='qr-'+uid.replace(/\s/g,'')+'-'+i;
           return `<tr style="background:${bg}">
@@ -3082,11 +5624,12 @@ function showQRModal(div){
   // Título
   const lbl=document.createElement('div');
   lbl.style.cssText='font-size:13px;font-weight:700;color:#1e3a5f;font-family:monospace;text-align:center;max-width:300px;word-break:break-all';
-  // extraer nro_guia del JSON
-  try{const j=JSON.parse(data);lbl.textContent='GR: '+(j.nro_guia||data.substring(0,30));}catch(e){lbl.textContent=data.substring(0,30);}
-  // QR grande
+  // extraer info del JSON para el label
+  try{const j=JSON.parse(data);lbl.textContent='GR: '+(j.gr||j.nro_guia||'')+'  |  Pedido: '+(j.p||j.pedido||'')+'  |  '+( j.c||j.receptor||'').substring(0,20);}
+  catch(e){lbl.textContent=data.substring(0,40);}
+  // QR grande — 320px para mejor escaneabilidad en celular
   const qrDiv=document.createElement('div');
-  try{new QRCode(qrDiv,{text:data,width:300,height:300,correctLevel:QRCode.CorrectLevel.M});}catch(e){}
+  try{new QRCode(qrDiv,{text:data,width:320,height:320,correctLevel:QRCode.CorrectLevel.M});}catch(e){console.warn('QR Modal error:',e);}
   // Botón cerrar
   const btn=document.createElement('button');
   btn.textContent='✕ Cerrar';
@@ -3368,11 +5911,32 @@ function sMon(n){return 'S/ '+S(n,0);}
 function sPct(a,b){return b>0?(a/b*100).toFixed(1)+'%':'—';}
 function semTile(v,meta,inv=false){const ok=inv?v<=meta*0.9:v>=meta;const wa=inv?v<=meta*1.1:v>=meta*0.75;return ok?'ok':wa?'warn':'danger';}
 
+// Filtra por período basándose en f_estado o f_venta del item
+function filtroPeriodo(e, periodo){
+  if(!periodo||periodo==='anual')return true;
+  // Buscar fecha en el item
+  const raw=e.f_estado||e.f_venta||e.fecha||'';
+  if(!raw)return true; // sin fecha → incluir siempre
+  // Parsear fecha dd/mm/yyyy o similar
+  let d=null;
+  if(raw.includes('/')){const p=raw.split('/');if(p.length>=3){d=new Date(+p[2],(+p[1])-1,+p[0]);}}
+  else if(raw.includes('-')){d=new Date(raw);}
+  if(!d||isNaN(d.getTime()))return true;
+  const hoy=new Date();
+  if(periodo==='diario'){return d.toDateString()===hoy.toDateString();}
+  if(periodo==='semanal'){const ini=new Date(hoy);ini.setDate(hoy.getDate()-7);return d>=ini&&d<=hoy;}
+  if(periodo==='mensual'){return d.getMonth()===hoy.getMonth()&&d.getFullYear()===hoy.getFullYear();}
+  return true;
+}
+
 // Analiza ST.espe_todos[] y ST para construir todos los KPIs
-function kpiData(){
+function kpiData(zonaP,trP){
   const all=ST.espe_todos||[];
   const ped=ST.pedidos||[];
   const rech=ST.rechazos||[];
+  // Período activo (desde selectores o ST.kpi)
+  const zonaPer=zonaP||ST.kpi.zona_periodo||'diario';
+  const trPer=trP||ST.kpi.tr_periodo||'diario';
 
   // Grupos de estado
   const ENTREGADO=['ENTREGADO'];
@@ -3396,10 +5960,14 @@ function kpiData(){
 
   const efectividad=total>0?((totEnt/(totEnt+totRec))*100||0):0;
 
-  // Por Fuerza de Venta (campo fuerza_venta del RPTR, fallback a canal)
+  // Por Fuerza de Venta — prioridad: RPTR (ST.pedidos.fuerza_venta) > ESPE.fuerza_venta > ESPE.canal
+  // Construir mapa de número pedido → fuerza_venta desde RPTR
+  const fvMap={};
+  ped.forEach(p=>{if(p.fuerza_venta&&p.fuerza_venta.trim())fvMap[p.numero]=p.fuerza_venta.trim().toUpperCase();});
   const byFV={};
   all.forEach(e=>{
-    const fv=e.fuerza_venta||e.canal||'Sin Fuerza de Venta';
+    // Buscar en RPTR primero, luego ESPE, luego canal
+    const fv=fvMap[e.numero]||e.fuerza_venta||e.canal||'Sin Fuerza de Venta';
     if(!byFV[fv])byFV[fv]={ent:0,mEnt:0,rec:0,mRec:0,trans:0,mTrans:0,total:0,mTotal:0};
     const d=byFV[fv];
     d.total++;d.mTotal+=(+e.monto||0);
@@ -3408,9 +5976,9 @@ function kpiData(){
     else if(isTrans(e)){d.trans++;d.mTrans+=(+e.monto||0);}
   });
 
-  // Por Zona/Distrito
+  // Por Zona/Distrito — filtrado por período zonaPer
   const byDist={};
-  all.forEach(e=>{
+  all.filter(e=>filtroPeriodo(e,zonaPer)).forEach(e=>{
     const dist=e.distrito||'Sin Distrito';
     if(!byDist[dist])byDist[dist]={ent:0,rec:0,trans:0,total:0,monto:0};
     const d=byDist[dist];
@@ -3418,35 +5986,72 @@ function kpiData(){
     if(isEnt(e))d.ent++;else if(isRec(e))d.rec++;else if(isTrans(e))d.trans++;
   });
 
-  // Por Transporte (desde ST.pedidos que tienen campo 'flota')
-  const normPlaca=p=>{let pl=p||'Sin Asignar';if(pl.toUpperCase()==='ULICES'||pl.toUpperCase()==='ULISES'){pl='ULISES (TÉCNICO)';}return pl;};
+  // Por Transporte — fuente principal: BASE DIARIA (p.base_estado presente) + Tránsito
+  // filtrado por período trPer
+  const _sinAsigKeys=['SIN ASIGNAR','','SIN ASIG','SIN PLACA','SINASIGNAR'];
+  const normPlaca=pl=>{
+    const s=(pl||'').toString().toUpperCase().trim().replace(/[_]/g,' ');
+    if(!s||_sinAsigKeys.includes(s))return '';
+    if(s==='ULICES')return 'ULISES';
+    return s;
+  };
   const byTr={};
-  ped.forEach(p=>{
-    const placa=normPlaca(p.flota||p.unidad||'Sin Asignar');
+  // Contar "Sin Asignar" — pedidos que vienen de BASE DIARIA sin placa real asignada
+  let sinAsignar=0;
+  // Usar ST.pedidos pero SOLO los que tienen base_estado (vinieron de BASE DIARIA)
+  // O si base_estado no existe, usar todos los pedidos del periodo
+  const pedBase=ped.filter(p=>p.base_estado!==undefined&&p.base_estado!==null&&p.base_estado!=='');
+  const pedFuente=pedBase.length>0?pedBase:ped; // fallback a todos si no hay BASE
+  pedFuente.filter(p=>filtroPeriodo(p,trPer)).forEach(p=>{
+    const placa=normPlaca(p.placa||p.flota||p.unidad||'');
+    if(!placa){sinAsignar++;return;}
     const tipo=(p.canal==='MYBEES')?'TERCERO':'PROPIO';
     if(!byTr[placa])byTr[placa]={prods:0,peds:0,ent:0,rec:0,costo:0,tipo};
-    byTr[placa].peds++;byTr[placa].prods+=(+p.cantidad||1);
+    byTr[placa].peds++;
+    byTr[placa].prods+=(+p.und||+p.cantidad||1);
     byTr[placa].costo+=(+p.precio||0);
-    if(p.estado&&ENTREGADO.includes(p.estado.toUpperCase()))byTr[placa].ent++;
-    if(p.estado&&RECHAZO.includes(p.estado.toUpperCase()))byTr[placa].rec++;
+    const est=(p.base_estado||p.estado||'').toUpperCase();
+    if(est&&ENTREGADO.includes(est))byTr[placa].ent++;
+    else if(est&&RECHAZO.includes(est))byTr[placa].rec++;
   });
-  // Completar con tránsito data si existe
-  if(ST.trans_data){
-    ST.trans_data.forEach(t=>{
-      const placa=normPlaca(t.placa||t.unidad||t.vehiculo||'Sin Asignar');
+  // Complementar con datos del Reporte Tránsito (si existe)
+  if(ST.trans_data&&ST.trans_data.length>0){
+    ST.trans_data.filter(t=>filtroPeriodo(t,trPer)).forEach(t=>{
+      const placa=normPlaca(t.placa||t.unidad||t.vehiculo||'');
+      if(!placa)return; // tránsito sin placa no cuenta
       if(!byTr[placa])byTr[placa]={prods:0,peds:0,ent:0,rec:0,costo:0,tipo:'PROPIO'};
-      byTr[placa].peds++;byTr[placa].prods+=(+t.cantidad||1);
-      byTr[placa].costo+=(+t.monto||+t.costo||0);
+      // Solo sumar si este pedido NO fue ya contado desde BASE
+      const yaContado=pedFuente.some(p=>p.numero===(t.pedido||t.numero)&&normPlaca(p.placa||p.unidad||'')===placa);
+      if(!yaContado){
+        byTr[placa].peds++;
+        byTr[placa].prods+=(+t.cantidad||1);
+        byTr[placa].costo+=(+t.monto||+t.costo||0);
+      }
     });
   }
 
-  return {totEnt,totRec,totTrans,totAnu,total,mtoEnt,mtoRec,mtoTrans,mtoTotal,efectividad,byFV,byDist,byTr};
+  return {totEnt,totRec,totTrans,totAnu,total,mtoEnt,mtoRec,mtoTrans,mtoTotal,efectividad,byFV,byDist,byTr,sinAsignar,zonaPer,trPer};
 }
 
+const PERIODO_LABELS={diario:'Diario — hoy',semanal:'Últimos 7 días',mensual:'Este mes',anual:'Todo el año'};
+function syncPeriodoSelect(id,key){
+  const sel=document.getElementById(id);if(!sel)return;
+  sel.value=ST.kpi[key]||'diario';
+}
 function renderKpi(){
+  // Sincronizar selectores de período con estado guardado
+  if(!ST.kpi.zona_periodo)ST.kpi.zona_periodo='diario';
+  if(!ST.kpi.tr_periodo)ST.kpi.tr_periodo='diario';
+  syncPeriodoSelect('kpi-zona-periodo','zona_periodo');
+  syncPeriodoSelect('kpi-tr-periodo','tr_periodo');
   const d=kpiData();
   const hoy=new Date().toLocaleDateString('es-PE',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
   document.getElementById('kpi-fecha').textContent='Actualizado: '+hoy;
+  // Actualizar labels de período
+  const zpLabel=document.getElementById('kpi-zona-periodo-label');
+  if(zpLabel)zpLabel.textContent=PERIODO_LABELS[d.zonaPer]||d.zonaPer;
+  const trpLabel=document.getElementById('kpi-tr-periodo-label');
+  if(trpLabel)trpLabel.textContent=PERIODO_LABELS[d.trPer]||d.trPer;
 
   // ── TILES RESUMEN EJECUTIVO ──
   const tiles=[
@@ -3498,15 +6103,16 @@ function renderKpi(){
     <td style="text-align:center">${(fvTot.ent+fvTot.rec>0?(fvTot.ent/(fvTot.ent+fvTot.rec)*100).toFixed(1):0)+'%'}</td>
   </tr>`;
 
-  // ── TABLA 2: POR TRANSPORTE / PLACA ──
+  // ── TABLA 2: POR TRANSPORTE / PLACA (fuente: BASE DIARIA) ──
   const trRows=Object.entries(d.byTr).sort((a,b)=>b[1].peds-a[1].peds);
-  document.getElementById('kpi-tr-total').textContent=trRows.length+' unidades activas';
-  if(trRows.length===0){
-    document.getElementById('kpi-tr-body').innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--ink-soft);padding:20px">Carga el Reporte Tránsito para ver datos por unidad</td></tr>';
+  const sinAsig=d.sinAsignar||0;
+  document.getElementById('kpi-tr-total').textContent=trRows.length+' unidades activas · '+sinAsig+' sin asignar (BASE)';
+  if(trRows.length===0&&sinAsig===0){
+    document.getElementById('kpi-tr-body').innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--ink-soft);padding:20px">Carga Base Diaria o Reporte Tránsito para ver datos por unidad</td></tr>';
   } else {
     const trTot={prods:0,peds:0,ent:0,rec:0,costo:0};
     trRows.forEach(([,v])=>{trTot.prods+=v.prods;trTot.peds+=v.peds;trTot.ent+=v.ent;trTot.rec+=v.rec;trTot.costo+=v.costo;});
-    document.getElementById('kpi-tr-body').innerHTML=trRows.map(([placa,v])=>{
+    let rowsHtml=trRows.map(([placa,v])=>{
       const ef=v.ent+v.rec>0?(v.ent/(v.ent+v.rec)*100):0;
       const cls=ef>=90?'#16A34A':ef>=75?'#D97706':'#64748B';
       const isCam=placa.match(/^[A-Z]{3}-?\d{3}$/i)||placa.toLowerCase().includes('cam');
@@ -3517,20 +6123,35 @@ function renderKpi(){
         <td>${tipoLabel}</td>
         <td style="text-align:center;font-weight:600">${S(v.prods)}</td>
         <td style="text-align:center;font-weight:700">${S(v.peds)}</td>
+        <td style="text-align:center;color:#6B7280">—</td>
         <td style="text-align:center;font-weight:700;color:#16A34A">${S(v.ent)}</td>
         <td style="text-align:center;font-weight:700;color:#DC2626">${S(v.rec)}</td>
         <td style="text-align:center"><span style="background:${cls}18;color:${cls};padding:2px 8px;border-radius:10px;font-weight:700;font-size:12px">${ef.toFixed(1)+'%'}</span></td>
         <td style="text-align:right;font-family:monospace;font-weight:700">${sMon(v.costo)}</td>
       </tr>`;
-    }).join('')+`<tr style="background:#F8FAFC;font-weight:700;border-top:2px solid #E2E8F0">
-      <td colspan="2">TOTAL</td>
+    }).join('');
+    // Fila especial: Sin Asignar (desde BASE DIARIA)
+    if(sinAsig>0){
+      rowsHtml+=`<tr style="background:#FEF9C3">
+        <td style="font-weight:700;color:#92400E">⚠️ SIN ASIGNAR</td>
+        <td><span style="background:#FEF9C3;color:#92400E;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:700">BASE DIARIA</span></td>
+        <td style="text-align:center;color:#92400E;font-weight:700">—</td>
+        <td style="text-align:center;color:#92400E;font-weight:700">${S(sinAsig)}</td>
+        <td style="text-align:center;color:#DC2626;font-weight:800">${S(sinAsig)}</td>
+        <td style="text-align:center">—</td><td style="text-align:center">—</td><td style="text-align:center">—</td><td style="text-align:center">—</td>
+      </tr>`;
+    }
+    rowsHtml+=`<tr style="background:#F8FAFC;font-weight:700;border-top:2px solid #E2E8F0">
+      <td colspan="2">TOTAL ASIGNADOS</td>
       <td style="text-align:center">${S(trTot.prods)}</td>
       <td style="text-align:center">${S(trTot.peds)}</td>
+      <td style="text-align:center;color:#DC2626">${S(sinAsig)}</td>
       <td style="text-align:center;color:#16A34A">${S(trTot.ent)}</td>
       <td style="text-align:center;color:#DC2626">${S(trTot.rec)}</td>
       <td></td>
       <td style="text-align:right;font-family:monospace">${sMon(trTot.costo)}</td>
     </tr>`;
+    document.getElementById('kpi-tr-body').innerHTML=rowsHtml;
   }
 
   // ── TABLA 3: EN TRÁNSITO POR FUERZA DE VENTA ──
@@ -3970,6 +6591,276 @@ function renderAll(){
       hd.textContent=ahora.toLocaleDateString('es-PE',{weekday:'short',day:'2-digit',month:'short',year:'numeric'});
     }
   }catch(e){}
+}
+
+// ══════════════════════════════════════════════
+// KPIs COMPLEMENTARIOS
+// ══════════════════════════════════════════════
+
+// Leer archivo xlsx/csv de Combustible o Peajes
+function lfoKpiComp(input, tipo){
+  const f=input.files&&input.files[0];
+  if(!f)return;
+  const name=(f.name||'').toLowerCase();
+  if(name.endsWith('.xlsx')||name.endsWith('.xls')){
+    const reader=new FileReader();
+    reader.onload=function(ev){
+      try{
+        if(typeof XLSX==='undefined'){toast('SheetJS no cargó — espera y reintenta','warn');return;}
+        const wb=XLSX.read(ev.target.result,{type:'binary',raw:false});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+        let total=0;
+        rows.forEach(r=>{
+          // Buscar columnas de monto/importe/total en la fila
+          const keys=Object.keys(r).map(k=>k.toLowerCase());
+          const montoKey=Object.keys(r).find(k=>/(monto|importe|total|valor|amount|gasto|costo|s\/|sol)/i.test(k));
+          if(montoKey) total+=parseFloat(String(r[montoKey]).replace(/[^0-9.]/g,''))||0;
+        });
+        if(tipo==='comb'){
+          // Dividir entre las dos unidades principales
+          ST.kpi.comb_c1=+(total*0.5).toFixed(2);
+          ST.kpi.comb_c2=+(total*0.5).toFixed(2);
+          // Actualizar inputs
+          const c1=document.getElementById('kpi-comb-c1');const c2=document.getElementById('kpi-comb-c2');
+          if(c1)c1.value=ST.kpi.comb_c1;if(c2)c2.value=ST.kpi.comb_c2;
+          toast('✅ Combustible leído: S/ '+total.toFixed(2)+' — distribuido equitativamente. Ajusta si es necesario.','success');
+        } else if(tipo==='peaje'){
+          ST.kpi.peaje_c1=+(total*0.5).toFixed(2);
+          ST.kpi.peaje_c2=+(total*0.5).toFixed(2);
+          const p1=document.getElementById('kpi-peaje-c1');const p2=document.getElementById('kpi-peaje-c2');
+          if(p1)p1.value=ST.kpi.peaje_c1;if(p2)p2.value=ST.kpi.peaje_c2;
+          toast('✅ Peajes leídos: S/ '+total.toFixed(2)+' — distribuido equitativamente. Ajusta si es necesario.','success');
+        }
+        save();renderKpiComplementarios();
+      }catch(e){toast('Error leyendo archivo: '+e.message,'error');}
+    };
+    reader.readAsBinaryString(f);
+  } else {
+    toast('Sube un archivo .xlsx o .xls de '+( tipo==='comb'?'combustible':'peajes'),'warn');
+  }
+}
+
+// Renderizar el bloque de KPIs Complementarios calculados
+function renderKpiComplementarios(){
+  const el=document.getElementById('kpi-manual-grid');
+  if(!el)return;
+  const k=ST.kpi||{};
+  // Totales
+  const combTotal=(+k.comb_c1||0)+(+k.comb_c2||0);
+  const peajeTotal=(+k.peaje_c1||0)+(+k.peaje_c2||0);
+  const kmC1=(+k.km_c1||0); const kmC2=(+k.km_c2||0);
+  const kmTotal=kmC1+kmC2;
+  // Calcular KMs desde hodómetro de Vigilancia si existe
+  const vig=ST.vigilancia||{};
+  const hodo=vig.hodometro||[];
+  let kmAutoC1=0,kmAutoC2=0;
+  hodo.forEach(h=>{
+    const km=(+h.km_fin||0)-(+h.km_ini||0);
+    if((h.unidad||'').toUpperCase().includes('C1')||(h.placa||'').toUpperCase().includes('AEK'))kmAutoC1+=km>0?km:0;
+    else if((h.unidad||'').toUpperCase().includes('C2')||(h.placa||'').toUpperCase().includes('AHJ'))kmAutoC2+=km>0?km:0;
+  });
+  const kmFinalC1=kmAutoC1||kmC1;const kmFinalC2=kmAutoC2||kmC2;
+  const kmFinalTotal=kmFinalC1+kmFinalC2;
+  // Pedidos entregados (para costo por entrega)
+  const d=kpiData();
+  const entregados=d.totEnt||1;
+  const costoXEntrega=entregados>0?((combTotal+peajeTotal)/entregados):0;
+  const costoXKm=kmFinalTotal>0?((combTotal+peajeTotal)/kmFinalTotal):0;
+  const incidentes=+(k.incidentes||vig.incidencias?.length||0);
+  const danos=+(k.danos||0);
+  const kpiCards=[
+    {ico:'⛽',lbl:'Combustible Total',val:'S/ '+combTotal.toFixed(2),sub:'C1: S/'+( +k.comb_c1||0).toFixed(2)+' · C2: S/'+(+k.comb_c2||0).toFixed(2),col:'#F97316'},
+    {ico:'🛣',lbl:'Peajes Total',val:'S/ '+peajeTotal.toFixed(2),sub:'C1: S/'+(+k.peaje_c1||0).toFixed(2)+' · C2: S/'+(+k.peaje_c2||0).toFixed(2),col:'#0EA5E9'},
+    {ico:'📏',lbl:'Km Recorridos',val:kmFinalTotal.toFixed(0)+' km',sub:'C1: '+kmFinalC1.toFixed(0)+' km · C2: '+kmFinalC2.toFixed(0)+' km'+(kmAutoC1>0?' (hodómetro)':''),col:'#8B5CF6'},
+    {ico:'📦',lbl:'Costo por Entrega',val:'S/ '+costoXEntrega.toFixed(2),sub:'Combustible+Peajes ÷ '+entregados+' entregas',col:'#16A34A'},
+    {ico:'🛞',lbl:'Costo por Km',val:'S/ '+costoXKm.toFixed(2)+'/km',sub:'Combustible+Peajes ÷ km totales',col:'#0F766E'},
+    {ico:'⚠️',lbl:'Incidencias Unidades',val:String(incidentes),sub:'Registradas en Vigilancia',col:'#D97706'},
+    {ico:'🔴',lbl:'Productos Dañados',val:String(danos),sub:'Reportados en Vigilancia',col:'#DC2626'},
+  ];
+  el.innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;padding:4px 0">
+    ${kpiCards.map(c=>`<div style="background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:14px 16px;border-left:4px solid ${c.col}">
+      <div style="font-size:20px;margin-bottom:6px">${c.ico}</div>
+      <div style="font-size:11px;color:#6B7280;font-weight:600;text-transform:uppercase;letter-spacing:.5px">${c.lbl}</div>
+      <div style="font-size:22px;font-weight:900;color:${c.col};margin:4px 0">${c.val}</div>
+      <div style="font-size:10px;color:#9CA3AF">${c.sub}</div>
+    </div>`).join('')}
+  </div>`;
+}
+
+// ══════════════════════════════════════════════
+// VIGILANCIA — Hodómetro, Incidencias, Devoluciones
+// ══════════════════════════════════════════════
+
+// Inicializar ST.vigilancia si no existe
+function initVig(){
+  if(!ST.vigilancia)ST.vigilancia={hodometro:[],incidencias:[],devoluciones:[]};
+  if(!ST.vigilancia.hodometro)ST.vigilancia.hodometro=[];
+  if(!ST.vigilancia.incidencias)ST.vigilancia.incidencias=[];
+  if(!ST.vigilancia.devoluciones)ST.vigilancia.devoluciones=[];
+  return ST.vigilancia;
+}
+
+// Renderizar tabla de hodómetro
+function renderVigilancia(){
+  initVig();
+  const vig=ST.vigilancia;
+  // Hodómetro
+  const tbody=document.getElementById('vig-hodometro-body');
+  if(tbody){
+    if(vig.hodometro.length===0){
+      tbody.innerHTML='<tr><td colspan="6" style="text-align:center;color:#9CA3AF;padding:16px">Sin registros. Agrega una unidad para comenzar.</td></tr>';
+    } else {
+      tbody.innerHTML=vig.hodometro.map((h,i)=>`<tr>
+        <td style="font-weight:700;color:#1A56E8">${h.unidad||'—'}</td>
+        <td><input value="${h.placa||''}" oninput="ST.vigilancia.hodometro[${i}].placa=this.value"
+          style="width:90px;border:1px solid #D1D5DB;border-radius:4px;padding:3px 6px;font-size:12px" placeholder="Placa"></td>
+        <td><input type="number" value="${h.km_ini||''}" oninput="ST.vigilancia.hodometro[${i}].km_ini=+this.value"
+          style="width:80px;border:1px solid #D1D5DB;border-radius:4px;padding:3px 6px;font-size:12px" placeholder="0"></td>
+        <td><input type="number" value="${h.km_fin||''}" oninput="ST.vigilancia.hodometro[${i}].km_fin=+this.value"
+          style="width:80px;border:1px solid #D1D5DB;border-radius:4px;padding:3px 6px;font-size:12px" placeholder="0"></td>
+        <td style="font-weight:700;color:#16A34A">${(+h.km_fin||0)-(+h.km_ini||0)>0?((+h.km_fin)-(+h.km_ini)).toFixed(0)+' km':'—'}</td>
+        <td><button onclick="ST.vigilancia.hodometro.splice(${i},1);renderVigilancia()" style="background:#FEE2E2;color:#DC2626;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px">✕</button></td>
+      </tr>`).join('');
+    }
+  }
+  // Incidencias
+  const iDiv=document.getElementById('vig-incidencias-list');
+  if(iDiv){
+    if(vig.incidencias.length===0){
+      iDiv.innerHTML='<p style="color:#9CA3AF;font-size:12px;padding:8px 0">Sin incidencias registradas.</p>';
+    } else {
+      iDiv.innerHTML=vig.incidencias.map((inc,i)=>`
+        <div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;gap:12px;align-items:flex-start">
+          <div style="flex:1">
+            <div style="font-size:11px;color:#92400E;font-weight:700">${inc.fecha||''} · ${inc.unidad||''}</div>
+            <div style="font-size:12px;color:#1F2937;margin-top:3px">${inc.descripcion||'Sin descripción'}</div>
+          </div>
+          <button onclick="ST.vigilancia.incidencias.splice(${i},1);renderVigilancia();save()"
+            style="background:#FEE2E2;color:#DC2626;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;flex-shrink:0">✕</button>
+        </div>`).join('');
+    }
+  }
+  // Devoluciones
+  const dDiv=document.getElementById('vig-devoluciones-list');
+  if(dDiv){
+    if(vig.devoluciones.length===0){
+      dDiv.innerHTML='<p style="color:#9CA3AF;font-size:12px;padding:8px 0">Sin devoluciones registradas.</p>';
+    } else {
+      dDiv.innerHTML=vig.devoluciones.map((dev,i)=>`
+        <div style="background:#FFF1F2;border:1px solid #FECDD3;border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;gap:12px;align-items:flex-start">
+          <div style="flex:1">
+            <div style="font-size:11px;color:#BE123C;font-weight:700">${dev.fecha||''} · Pedido: ${dev.pedido||'—'} · ${dev.cliente||''}</div>
+            <div style="font-size:12px;color:#1F2937;margin-top:2px">${dev.producto||'—'} | ${dev.motivo||'Sin casuística'}</div>
+          </div>
+          <button onclick="ST.vigilancia.devoluciones.splice(${i},1);renderVigilancia();save()"
+            style="background:#FEE2E2;color:#DC2626;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;flex-shrink:0">✕</button>
+        </div>`).join('');
+    }
+  }
+  // Actualizar KPIs complementarios con datos de vigilancia
+  renderKpiComplementarios();
+}
+
+function addVigUnidad(){
+  initVig();
+  const opciones=['C1 — AEK-392','C2 — AHJ-815','M1','M2','M3'];
+  const unidad=prompt('Unidad/Vehículo:\n'+opciones.join('\n')+'\n\nEscribe el nombre:')||'';
+  if(!unidad.trim())return;
+  ST.vigilancia.hodometro.push({
+    unidad:unidad.trim().toUpperCase(),
+    placa:'',
+    km_ini:'',
+    km_fin:'',
+    fecha:new Date().toLocaleDateString('es-PE')
+  });
+  renderVigilancia();
+}
+
+function saveVigilancia(){
+  initVig();
+  // Calcular KMs totales desde hodómetro y actualizar ST.kpi
+  let kmC1=0,kmC2=0;
+  ST.vigilancia.hodometro.forEach(h=>{
+    const km=(+h.km_fin||0)-(+h.km_ini||0);
+    if(km<=0)return;
+    const u=(h.unidad||'').toUpperCase();
+    if(u.includes('C1'))kmC1+=km;
+    else if(u.includes('C2'))kmC2+=km;
+  });
+  if(kmC1>0){ST.kpi.km_c1=+kmC1.toFixed(0);const el=document.getElementById('kpi-km-c1');if(el)el.value=kmC1.toFixed(0);}
+  if(kmC2>0){ST.kpi.km_c2=+kmC2.toFixed(0);const el=document.getElementById('kpi-km-c2');if(el)el.value=kmC2.toFixed(0);}
+  // Contar incidencias y daños
+  ST.kpi.incidentes=ST.vigilancia.incidencias.length;
+  const danosDev=ST.vigilancia.devoluciones.filter(d=>(d.motivo||'').toLowerCase().includes('da')||(d.motivo||'').toLowerCase().includes('roto')||(d.motivo||'').toLowerCase().includes('averi')).length;
+  if(danosDev>0)ST.kpi.danos=danosDev;
+  save();
+  renderKpiComplementarios();
+  toast('✅ Vigilancia guardada. KPIs actualizados.','success');
+}
+
+function addVigIncidencia(){
+  initVig();
+  const fecha=new Date().toLocaleDateString('es-PE');
+  const unidad=prompt('Unidad con incidencia (ej: C1, C2, M1):','') ||'';
+  if(!unidad.trim())return;
+  const descripcion=prompt('Describe la incidencia encontrada:','') ||'';
+  if(!descripcion.trim())return;
+  ST.vigilancia.incidencias.push({fecha,unidad:unidad.trim().toUpperCase(),descripcion:descripcion.trim()});
+  renderVigilancia();
+  save();
+  toast('⚠️ Incidencia registrada','warn');
+}
+
+function addVigDevolucion(){
+  initVig();
+  const fecha=new Date().toLocaleDateString('es-PE');
+  const pedido=prompt('Número de pedido devuelto:','') ||'';
+  if(!pedido.trim())return;
+  const cliente=prompt('Cliente:','') ||'';
+  const producto=prompt('Producto:','') ||'';
+  const motivo=prompt('Casuística / Motivo de devolución:\n(Ej: Producto dañado, Dirección incorrecta, Cliente ausente, Rechazo de precio...)','') ||'';
+  ST.vigilancia.devoluciones.push({fecha,pedido:pedido.trim(),cliente:cliente.trim(),producto:producto.trim(),motivo:motivo.trim()});
+  renderVigilancia();
+  save();
+  toast('🔴 Devolución registrada','info');
+}
+
+function expVigCSV(){
+  initVig();
+  const vig=ST.vigilancia;
+  let csv='REPORTE DE VIGILANCIA — GRUPO MERPES\n';
+  csv+='Fecha de exportación:,'+new Date().toLocaleString('es-PE')+'\n\n';
+  // Hodómetro
+  csv+='HODÓMETRO\n';
+  csv+='Unidad,Placa,Km Inicial,Km Final,Km Recorridos,Fecha\n';
+  vig.hodometro.forEach(h=>{
+    const km=(+h.km_fin||0)-(+h.km_ini||0);
+    csv+=`${h.unidad||''},${h.placa||''},${h.km_ini||''},${h.km_fin||''},${km>0?km.toFixed(0):''},${h.fecha||''}\n`;
+  });
+  csv+='\n';
+  // Incidencias
+  csv+='INCIDENCIAS EN UNIDADES\n';
+  csv+='Fecha,Unidad,Descripción\n';
+  vig.incidencias.forEach(i=>{csv+=`${i.fecha||''},${i.unidad||''},"${(i.descripcion||'').replace(/"/g,"'")}"\n`;});
+  csv+='\n';
+  // Devoluciones
+  csv+='DEVOLUCIONES Y CASUÍSTICA\n';
+  csv+='Fecha,Pedido,Cliente,Producto,Motivo\n';
+  vig.devoluciones.forEach(d=>{csv+=`${d.fecha||''},${d.pedido||''},"${(d.cliente||'').replace(/"/g,"'")}", "${(d.producto||'').replace(/"/g,"'")}","${(d.motivo||'').replace(/"/g,"'")}"\n`;});
+  const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='Vigilancia_Merpes_'+new Date().toISOString().slice(0,10)+'.csv';
+  a.click();URL.revokeObjectURL(a.href);
+  toast('📥 CSV de Vigilancia exportado','success');
+}
+
+// Llamar renderVigilancia cuando se entra a la pestaña
+const _origShowTab=showTab;
+function showTab(t,btn){
+  _origShowTab(t,btn);
+  if(t==='vigilancia'){try{renderVigilancia();}catch(e){console.warn('renderVigilancia:',e);}}
+  if(t==='kpi'){try{renderKpiComplementarios();}catch(e){}}
 }
 </script>
 <!-- CONFIG MODAL -->
