@@ -4855,7 +4855,15 @@ function sU(i,v,sel){
 }
 function sV(i,v,sel){ST.pedidos[i].vuelta=v;sel.className='vs '+(v==='1ERA VUELTA'?'vv1':'vv2');save();}
 function delP(i){if(!confirm('¿Eliminar?'))return;ST.pedidos.splice(i,1);save();renderAll();}
-function clearM(){if(!confirm('¿Limpiar todos los pedidos?'))return;ST.pedidos=[];save();renderAll();}
+function clearM(){
+  if(!confirm('¿Limpiar asignaciones de todos los pedidos?\n\nSe mantendrán los pedidos cargados pero se borrarán las asignaciones de unidad y vuelta.'))return;
+  ST.pedidos.forEach(p=>{
+    p.unidad='SIN ASIGNAR';
+    p.vuelta='';
+    p.tipo_asig='';
+  });
+  save();renderAll();
+}
 
 function renderMotorRes(){
   const uids=[...flota.camiones,...flota.motos].map(u=>u.id);
