@@ -2645,11 +2645,16 @@ if(typeof window !== "undefined") window.qrcode = qrcode;
     <h2 style="color:#e2e8f0;margin:0 0 8px;font-size:22px;">Gestión de Distribución</h2>
     <p style="color:#718096;margin:0 0 28px;font-size:13px;">Grupo Merpes Perú S.A.C.</p>
     <div id="login_msg" style="display:none;background:#742a2a;color:#feb2b2;padding:10px;border-radius:8px;margin-bottom:16px;font-size:13px;"></div>
-    <select id="rol_sel" style="width:100%;padding:12px;border-radius:8px;border:1px solid #2d3748;background:#2d3748;color:#e2e8f0;font-size:14px;margin-bottom:12px;">
+    <select id="rol_sel" onchange="onRolChange(this.value)" style="width:100%;padding:12px;border-radius:8px;border:1px solid #2d3748;background:#2d3748;color:#e2e8f0;font-size:14px;margin-bottom:12px;">
       <option value="LECTOR">👁 Solo Lectura</option>
       <option value="EDITOR">✏ Editor</option>
       <option value="ADMIN">⚙ Administrador</option>
+      <option value="VIGILANTE">🔐 Vigilante</option>
+      <option value="CHOFER">🚛 Chofer</option>
     </select>
+    <div id="nombre_inp_wrap" style="display:none;margin-bottom:12px;">
+      <input id="nombre_inp" type="text" placeholder="Tu nombre completo" style="width:100%;padding:12px;border-radius:8px;border:1px solid #2d3748;background:#2d3748;color:#e2e8f0;font-size:14px;box-sizing:border-box;">
+    </div>
     <input id="pw_inp" type="password" placeholder="Contraseña (vacía para Lector)" style="width:100%;padding:12px;border-radius:8px;border:1px solid #2d3748;background:#2d3748;color:#e2e8f0;font-size:14px;margin-bottom:16px;box-sizing:border-box;">
     <button onclick="tryLogin()" style="width:100%;padding:14px;background:#3182ce;color:white;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;">Ingresar →</button>
     <p style="color:#4a5568;font-size:11px;margin-top:16px;">v3.0 · Acceso restringido</p>
@@ -3260,7 +3265,132 @@ if(typeof window !== "undefined") window.qrcode = qrcode;
 <section class="sec" id="sec-vigilancia">
   <div class="ph" style="background:linear-gradient(135deg,#4C1D95 0%,#7C3AED 100%);border-radius:12px;padding:20px 24px;margin-bottom:20px">
     <h1 style="color:#fff;margin:0 0 6px">🔒 Vigilancia — Control Operativo</h1>
-    <p style="color:#DDD6FE;margin:0;font-size:13px">Hodómetro, incidencias con evidencia fotográfica y registro de devoluciones/casuística</p>
+    <p style="color:#DDD6FE;margin:0;font-size:13px">Control antifraude de GRs • Hodómetro • Incidencias • Devoluciones</p>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       PANEL GR: SALIDA Y REINGRESO
+  ═══════════════════════════════════════════════════════ -->
+
+  <!-- Dashboard de estado GR -->
+  <div id="gr-dashboard" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+    <div style="flex:1;min-width:130px;background:#FFF7ED;border:2px solid #FED7AA;border-radius:10px;padding:14px;text-align:center">
+      <div style="font-size:28px;font-weight:900;color:#C2410C" id="gr-cnt-pendiente">0</div>
+      <div style="font-size:11px;color:#92400E;font-weight:700;margin-top:2px">PENDIENTES</div>
+    </div>
+    <div style="flex:1;min-width:130px;background:#ECFDF5;border:2px solid #6EE7B7;border-radius:10px;padding:14px;text-align:center">
+      <div style="font-size:28px;font-weight:900;color:#065F46" id="gr-cnt-despachado">0</div>
+      <div style="font-size:11px;color:#065F46;font-weight:700;margin-top:2px">DESPACHADAS</div>
+    </div>
+    <div style="flex:1;min-width:130px;background:#EFF6FF;border:2px solid #BFDBFE;border-radius:10px;padding:14px;text-align:center">
+      <div style="font-size:28px;font-weight:900;color:#1E40AF" id="gr-cnt-reingresado">0</div>
+      <div style="font-size:11px;color:#1E40AF;font-weight:700;margin-top:2px">REINGRESADAS</div>
+    </div>
+    <div style="flex:1;min-width:130px;background:#FFF1F2;border:2px solid #FCA5A5;border-radius:10px;padding:14px;text-align:center">
+      <div style="font-size:28px;font-weight:900;color:#991B1B" id="gr-cnt-bloqueado">0</div>
+      <div style="font-size:11px;color:#991B1B;font-weight:700;margin-top:2px">ALERTAS FRAUDE</div>
+    </div>
+  </div>
+
+  <!-- Panel Salida GR -->
+  <div class="card" style="margin-bottom:14px;border:2px solid #FED7AA">
+    <div class="ch" style="background:#FFF7ED;border-left:4px solid #F59E0B">
+      <span class="ct" style="color:#B45309">🚪 Registrar Salida de GR</span>
+      <span style="font-size:11px;color:#92400E">Acredita la salida de una guía de remisión del almacén</span>
+    </div>
+    <div class="cb">
+      <div id="gr-salida-alerta" style="display:none;background:#FEF2F2;border:2px solid #EF4444;border-radius:10px;padding:16px;margin-bottom:14px">
+        <div style="font-size:16px;font-weight:900;color:#DC2626">🚨 ¡ALERTA DE FRAUDE DETECTADO!</div>
+        <div style="font-size:13px;color:#7F1D1D;margin-top:6px" id="gr-salida-alerta-msg"></div>
+      </div>
+      <div id="gr-salida-ok" style="display:none;background:#F0FDF4;border:2px solid #22C55E;border-radius:10px;padding:12px;margin-bottom:14px">
+        <div style="font-size:13px;font-weight:700;color:#15803D" id="gr-salida-ok-msg"></div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <div style="flex:2;min-width:200px">
+          <label style="font-size:11px;font-weight:700;color:#6B7280;display:block;margin-bottom:4px">Número de GR *</label>
+          <input id="gr-sal-numero" type="text" placeholder="Ej: 09-T002-00109713"
+            style="width:100%;padding:10px;border:1px solid #D1D5DB;border-radius:8px;font-size:13px;font-family:monospace;box-sizing:border-box"
+            oninput="verificarGR(this.value)">
+        </div>
+        <div style="flex:1;min-width:150px">
+          <label style="font-size:11px;font-weight:700;color:#6B7280;display:block;margin-bottom:4px">Unidad / Chofer *</label>
+          <input id="gr-sal-chofer" type="text" placeholder="Placa / Nombre chofer"
+            style="width:100%;padding:10px;border:1px solid #D1D5DB;border-radius:8px;font-size:13px;box-sizing:border-box">
+        </div>
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="font-size:11px;font-weight:700;color:#6B7280;display:block;margin-bottom:4px">Foto(s) de la GR — máximo 3 fotos</label>
+        <input id="gr-sal-fotos" type="file" accept="image/*" multiple
+          style="width:100%;font-size:12px;padding:6px;border:1px dashed #D1D5DB;border-radius:8px;box-sizing:border-box">
+        <div id="gr-sal-fotos-preview" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>
+      </div>
+      <button onclick="registrarSalidaGR()"
+        style="background:#D97706;color:white;border:none;border-radius:8px;padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;width:100%">
+        🚪 Confirmar Salida de GR
+      </button>
+    </div>
+  </div>
+
+  <!-- Panel Reingreso GR -->
+  <div class="card" style="margin-bottom:14px;border:2px solid #BFDBFE">
+    <div class="ch" style="background:#EFF6FF;border-left:4px solid #3B82F6">
+      <span class="ct" style="color:#1E40AF">🔄 Registrar Reingreso de GR</span>
+      <span style="font-size:11px;color:#1E3A8A">GR que retorna por entrega no completada</span>
+    </div>
+    <div class="cb">
+      <div id="gr-rei-alerta" style="display:none;background:#FEF2F2;border:2px solid #EF4444;border-radius:10px;padding:12px;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:700;color:#DC2626" id="gr-rei-alerta-msg"></div>
+      </div>
+      <div id="gr-rei-ok" style="display:none;background:#F0FDF4;border:2px solid #22C55E;border-radius:10px;padding:12px;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:700;color:#15803D" id="gr-rei-ok-msg"></div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <div style="flex:2;min-width:200px">
+          <label style="font-size:11px;font-weight:700;color:#6B7280;display:block;margin-bottom:4px">Número de GR *</label>
+          <input id="gr-rei-numero" type="text" placeholder="Ej: 09-T002-00109713"
+            style="width:100%;padding:10px;border:1px solid #D1D5DB;border-radius:8px;font-size:13px;font-family:monospace;box-sizing:border-box">
+        </div>
+        <div style="flex:1;min-width:150px">
+          <label style="font-size:11px;font-weight:700;color:#6B7280;display:block;margin-bottom:4px">Motivo de retorno</label>
+          <select id="gr-rei-motivo" style="width:100%;padding:10px;border:1px solid #D1D5DB;border-radius:8px;font-size:13px;box-sizing:border-box">
+            <option>Cliente ausente</option>
+            <option>Dirección incorrecta</option>
+            <option>Rechazo del cliente</option>
+            <option>Producto con observación</option>
+            <option>Ventana horaria vencida</option>
+            <option>Otro</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="font-size:11px;font-weight:700;color:#6B7280;display:block;margin-bottom:4px">Foto del reingreso — evidencia obligatoria</label>
+        <input id="gr-rei-foto" type="file" accept="image/*"
+          style="width:100%;font-size:12px;padding:6px;border:1px dashed #D1D5DB;border-radius:8px;box-sizing:border-box">
+        <div id="gr-rei-foto-preview" style="margin-top:8px"></div>
+      </div>
+      <button onclick="registrarReingresoGR()"
+        style="background:#2563EB;color:white;border:none;border-radius:8px;padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;width:100%">
+        🔄 Confirmar Reingreso de GR
+      </button>
+    </div>
+  </div>
+
+  <!-- Registro del Día -->
+  <div class="card" style="margin-bottom:14px">
+    <div class="ch" style="background:#F0FDF4;border-left:4px solid #22C55E">
+      <span class="ct" style="color:#166534">📋 Registro del Día — Historial de GRs</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="gr-buscar" type="text" placeholder="Buscar GR..." oninput="renderGRRegistro()"
+          style="padding:5px 10px;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;font-family:monospace">
+        <button onclick="expGRCSV()" style="background:#166534;color:white;border:none;border-radius:6px;padding:5px 12px;font-size:11px;cursor:pointer">⬇ CSV</button>
+      </div>
+    </div>
+    <div class="cb" style="padding:0">
+      <div id="gr-registro-list" style="max-height:400px;overflow-y:auto">
+        <div style="text-align:center;padding:20px;color:#9CA3AF;font-size:12px">Sin registros de GR hoy</div>
+      </div>
+    </div>
   </div>
 
   <!-- Sub-sección A: Hodómetro -->
@@ -3803,13 +3933,23 @@ let flota={
 // ══════════════════════════════════════════════
 /* ===== MULTI-USER & SYNC ===== */
 const ROLES = {
-  ADMIN:  { pw: 'merpes2024admin',  color: '#276749', label: '⚙ Admin'        },
-  EDITOR: { pw: 'logistica2024',    color: '#2B6CB0', label: '✏ Editor'       },
-  LECTOR: { pw: '',                 color: '#553C9A', label: '👁 Solo Lectura' }
+  ADMIN:      { pw: 'merpes2024admin',  color: '#276749', label: '⚙ Admin'        },
+  EDITOR:     { pw: 'logistica2024',    color: '#2B6CB0', label: '✏ Editor'       },
+  LECTOR:     { pw: '',                 color: '#553C9A', label: '👁 Solo Lectura' },
+  VIGILANTE:  { pw: 'vigmerpes2026',    color: '#B7791F', label: '🔐 Vigilante'   },
+  CHOFER:     { pw: 'chofer2026',       color: '#2C7A7B', label: '🚛 Chofer'      }
 };
+
+// Sesión del vigilante/chofer actual
+let SESION_VIG = { usuario: '', nombre: '', rol: '' };
 
 let ROL = null;
 let GS_URL = 'https://script.google.com/macros/s/AKfycbzJ-jFX0_iubeOgdYDIj9KjQ9DCD6fIA1WkNoTVeOllEmqmqwVW5lfQkpkBmihcWmsg8A/exec';
+
+function onRolChange(rol) {
+  const wrap = document.getElementById('nombre_inp_wrap');
+  if (wrap) wrap.style.display = (rol === 'VIGILANTE' || rol === 'CHOFER') ? 'block' : 'none';
+}
 
 function tryLogin() {
   const rol = document.getElementById('rol_sel').value;
@@ -3819,6 +3959,15 @@ function tryLogin() {
     msg.textContent = 'Contraseña incorrecta.';
     msg.style.display = 'block';
     return;
+  }
+  if ((rol === 'VIGILANTE' || rol === 'CHOFER')) {
+    const nombre = (document.getElementById('nombre_inp')||{}).value || '';
+    if (!nombre.trim()) {
+      msg.textContent = 'Ingresa tu nombre completo.';
+      msg.style.display = 'block';
+      return;
+    }
+    SESION_VIG = { usuario: rol.toLowerCase(), nombre: nombre.trim(), rol };
   }
   msg.style.display = 'none';
   doLogin(rol);
@@ -3845,9 +3994,19 @@ function doLogin(rol) {
   if(localRestored) setSyncStatus('ok','Datos locales restaurados ✓ ('+((ST.pedidos||[]).length)+' pedidos)');
   document.getElementById('login_screen').style.display = 'none';
   const chip = document.getElementById('user_chip');
-  if (chip) { chip.textContent = ROLES[rol].label; chip.style.background = ROLES[rol].color; }
+  const chipLabel = (rol === 'VIGILANTE' || rol === 'CHOFER') && SESION_VIG.nombre
+    ? ROLES[rol].label + ' — ' + SESION_VIG.nombre
+    : ROLES[rol].label;
+  if (chip) { chip.textContent = chipLabel; chip.style.background = ROLES[rol].color; }
   const btnCfg = document.getElementById('btn_config');
   if (btnCfg) btnCfg.style.display = (rol === 'ADMIN') ? 'inline-block' : 'none';
+  // Para VIGILANTE y CHOFER: ir directo a la pestaña Vigilancia
+  if (rol === 'VIGILANTE' || rol === 'CHOFER') {
+    setTimeout(()=>{
+      const btn = document.getElementById('nav-vigilancia');
+      if(btn) { showTab('vigilancia', btn); btn.click(); }
+    }, 200);
+  }
   // block editing for LECTOR
   if (rol === 'LECTOR') {
     setTimeout(()=>{
@@ -4323,6 +4482,7 @@ function pE(rows){
     const canal=String(r['p. emis']||r['canal']||r['entidad']||'').trim();
     const fuerza_venta=String(r['fuerza']||r['fuerza de venta']||r['fuerza_de_venta']||'').toUpperCase().trim();
     const cliente=String(r['razon social']||r['cliente']||'').trim();
+    const doc=String(r['ruc']||r['dni']||r['documento']||r['nro documento']||r['n° doc']||r['nro. doc']||r['nrodoc']||'').trim();
     const tel=String(r['telefono']||r['teléfono']||'').trim();
     const distrito=String(r['distrito']||'').toUpperCase().trim();
     const dir=String(r['direccion']||r['dirección']||'').trim();
@@ -4335,7 +4495,7 @@ function pE(rows){
                         sub_estado:subEst,f_venta:fVenta,f_estado:fEstado,fuerza_venta});
     // Solo agregar al motor de ruteo si es estado activo y no duplicado
     if(ESTADOS_ACTIVOS.includes(est)&&!ST.pedidos.some(p=>p.numero===num)){
-      ST.pedidos.push(mkP({numero:num,canal,cliente,tel,
+      ST.pedidos.push(mkP({numero:num,canal,cliente,doc,tel,
         distrito,depto:'LIMA',dir,precio:monto,
         estado:est,fuente:'ESPE'}));
     }
@@ -4407,6 +4567,7 @@ function pR(rows){
       'n° de guia','nro de guia','n° gr','nro gr','gr'
     ],[]);
 
+    const docRptr=gR(r,['ruc','dni','documento','nro documento','n° doc','nro. doc','nrodoc','ruc/dni'],[]);
     const ex=ST.pedidos.find(p=>p.numero===num);
     if(ex){
       if(!ex.producto&&prod)ex.producto=prod;
@@ -4415,6 +4576,7 @@ function pR(rows){
       if(!ex.fuerza_venta||ex.fuerza_venta==='')ex.fuerza_venta=fvNombre.toUpperCase();
       if(!ex.serie_guia||ex.serie_guia==='')ex.serie_guia=serieNombre;
       if(!ex.nro_guia||ex.nro_guia==='')ex.nro_guia=nroNombre;
+      if((!ex.doc||ex.doc==='')&&docRptr)ex.doc=docRptr;
       n++;
     } else {
       const d=(gR(r,['distrito'],[])  ).toUpperCase();
@@ -4424,6 +4586,7 @@ function pR(rows){
         canal:gR(r,['p. emis','p.emis','pemis','punto emision'],[]),
         fuerza_venta:fvNombre.toUpperCase(),
         cliente:gR(r,['cliente'],[]),
+        doc:docRptr,
         tel:gR(r,['telefono','teléfono','tel','celular'],[]),
         distrito:d,depto:dp,
         dir:gR(r,['dirección entrega','direccion entrega','dirección cliente','dir. entrega','direccion'],[]),
@@ -4448,6 +4611,7 @@ function pBase(rows){
   rows.forEach(r=>{
     const num=r['pedido']||r['número']||r['numero']||'';
     if(!num)return;
+    const docBase=String(r['ruc']||r['dni']||r['documento']||r['nro documento']||r['n° doc']||'').trim();
     const ex=ST.pedidos.find(p=>p.numero===num);
     if(ex){
       if(r['estado'])ex.base_estado=(r['estado']||'').toUpperCase();
@@ -4456,12 +4620,14 @@ function pBase(rows){
       if(r['canal']&&!ex.canal)ex.canal=r['canal'];
       if(r['detalle']&&!ex.detalle)ex.detalle=r['detalle'];
       if(r['sub detalle']&&!ex.sub_detalle)ex.sub_detalle=r['sub detalle'];
+      if((!ex.doc||ex.doc==='')&&docBase)ex.doc=docBase;
       n++;
     } else {
       const d=(r['distrito']||'').toUpperCase();
       ST.pedidos.push(mkP({numero:num,
         canal:(r['fuerza de venta']||r['canal']||'').toUpperCase(),
         cliente:r['cliente']||'',
+        doc:docBase,
         tel:r['telefono']||r['teléfono']||'',
         distrito:d,depto:(r['departamento']||'LIMA').toUpperCase(),
         dir:r['dirección']||r['direccion']||'',precio:parseFloat(r['costo']||r['monto']||0),
@@ -4719,6 +4885,7 @@ function mkP(d){
   const zona=gz(d.distrito||'',d.depto||'LIMA');
   return {id:Date.now()+'_'+Math.random().toString(36).slice(2,7),
     numero:d.numero||'',canal:d.canal||'',cliente:d.cliente||'',
+    doc:d.doc||'',  // RUC o DNI del cliente
     tel:d.tel||'',distrito:d.distrito||'',depto:d.depto||'LIMA',
     dir:d.dir||'',producto:d.producto||'',sku:d.sku||'',und:d.und||1,
     peso:d.peso||0,m3:d.m3||0,precio:d.precio||0,
@@ -5780,10 +5947,10 @@ function renderRutas(){
           const qrData=JSON.stringify({
             f: new Date().toLocaleDateString('es-PE'),
             c: (p.cliente||'').substring(0,25),
+            doc: (p.doc||''),        // RUC o DNI del cliente
             gr: grDisplay,
             p: p.numero,
-            u: p.und||1,
-            s: (p.serie||'').substring(0,15)
+            u: p.und||1
           });
           const qrId='qr-'+uid.replace(/\s/g,'')+'-'+i;
           return `<tr style="background:${bg}">
@@ -5851,7 +6018,18 @@ function showQRModal(div){
   const lbl=document.createElement('div');
   lbl.style.cssText='font-size:13px;font-weight:700;color:#1e3a5f;font-family:monospace;text-align:center;max-width:300px;word-break:break-all';
   // extraer info del JSON para el label
-  try{const j=JSON.parse(data);lbl.textContent='GR: '+(j.gr||j.nro_guia||'')+'  |  Pedido: '+(j.p||j.pedido||'')+'  |  '+( j.c||j.receptor||'').substring(0,20);}
+  try{
+    const j=JSON.parse(data);
+    const docLabel=j.doc?(j.doc.length===8?'DNI':'RUC')+': '+j.doc:'';
+    lbl.innerHTML=
+      '<div style="font-size:12px;color:#374151;line-height:1.7">'
+      +'<b>GR:</b> '+(j.gr||'—')+'<br>'
+      +'<b>Pedido:</b> '+(j.p||'—')+'<br>'
+      +'<b>Cliente:</b> '+(j.c||'—')+'<br>'
+      +(docLabel?'<b>'+docLabel.split(':')[0]+':</b> '+j.doc+'<br>':'')
+      +'<b>Fecha:</b> '+(j.f||'—')+'  <b>Und:</b> '+(j.u||1)
+      +'</div>';
+  }
   catch(e){lbl.textContent=data.substring(0,40);}
   // QR grande — 320px para mejor escaneabilidad en celular
   const qrDiv=document.createElement('div');
@@ -7132,10 +7310,11 @@ function renderKpiComplementarios(){
 
 // Inicializar ST.vigilancia si no existe
 function initVig(){
-  if(!ST.vigilancia)ST.vigilancia={hodometro:[],incidencias:[],devoluciones:[]};
+  if(!ST.vigilancia)ST.vigilancia={hodometro:[],incidencias:[],devoluciones:[],grs:[]};
   if(!ST.vigilancia.hodometro)ST.vigilancia.hodometro=[];
   if(!ST.vigilancia.incidencias)ST.vigilancia.incidencias=[];
   if(!ST.vigilancia.devoluciones)ST.vigilancia.devoluciones=[];
+  if(!ST.vigilancia.grs)ST.vigilancia.grs=[];
   return ST.vigilancia;
 }
 
@@ -7410,6 +7589,10 @@ function renderVigilancia(){
   if(!ST.vigilancia)initVig();
   const vig=ST.vigilancia;
 
+  // GR Dashboard y Registro
+  try{ renderGRDashboard(); } catch(e){}
+  try{ renderGRRegistro(); } catch(e){}
+
   // Hodómetro
   const tbody=document.getElementById('vig-hodometro-body');
   if(tbody){
@@ -7502,6 +7685,254 @@ function renderVigilancia(){
     }
   }
 }
+
+// ══════════════════════════════════════════════════════════════════
+// SISTEMA ANTIFRAUDE DE GRs — VIGILANCIA
+// ══════════════════════════════════════════════════════════════════
+
+function saveVigilanciaGR(){ save(); renderGRDashboard(); renderGRRegistro(); }
+
+/* Verifica en tiempo real si la GR ya fue despachada */
+function verificarGR(val){
+  const vig=initVig();
+  const num=(val||'').trim().toUpperCase();
+  const alerta=document.getElementById('gr-salida-alerta');
+  const ok=document.getElementById('gr-salida-ok');
+  if(!num){alerta.style.display='none';ok.style.display='none';return;}
+  const exist=vig.grs.find(g=>g.gr.toUpperCase()===num);
+  if(!exist){alerta.style.display='none';ok.style.display='none';return;}
+  if(exist.estado==='DESPACHADO'){
+    alerta.style.display='block';
+    document.getElementById('gr-salida-alerta-msg').innerHTML=
+      '⚠ La GR <b>'+num+'</b> ya fue despachada el <b>'+exist.fecha_salida+'</b> a las <b>'+exist.hora_salida+'</b>'
+      +(exist.vigilante_salida?' por <b>'+exist.vigilante_salida+'</b>':'')+'.<br>'
+      +'Esta GR <u>NO puede salir nuevamente</u> hasta que el vigilante acredite su reingreso.';
+    ok.style.display='none';
+  } else if(exist.estado==='REINGRESADO'){
+    alerta.style.display='none';
+    ok.style.display='block';
+    document.getElementById('gr-salida-ok-msg').innerHTML=
+      '✅ La GR <b>'+num+'</b> fue reingresada el <b>'+exist.fecha_reingreso+'</b>. Puede despacharse nuevamente.';
+  }
+}
+
+/* Lee fotos de un input[type=file] y devuelve array base64 (máx 3) */
+async function leerFotos(inputId, max){
+  const inp=document.getElementById(inputId);
+  if(!inp||!inp.files||inp.files.length===0) return [];
+  const files=Array.from(inp.files).slice(0,max||3);
+  const results=[];
+  for(const f of files){
+    await new Promise(res=>{
+      const r=new FileReader();
+      r.onload=e=>{results.push(e.target.result);res();};
+      r.readAsDataURL(f);
+    });
+  }
+  return results;
+}
+
+/* Registra la SALIDA de una GR */
+async function registrarSalidaGR(){
+  const vig=initVig();
+  const num=(document.getElementById('gr-sal-numero').value||'').trim().toUpperCase();
+  const chofer=(document.getElementById('gr-sal-chofer').value||'').trim();
+  const alerta=document.getElementById('gr-salida-alerta');
+  const ok=document.getElementById('gr-salida-ok');
+  if(!num){toast('Ingresa el número de GR','warn');return;}
+  // Anti-fraude: verificar si ya está DESPACHADO sin reingreso
+  const exist=vig.grs.find(g=>g.gr.toUpperCase()===num);
+  if(exist && exist.estado==='DESPACHADO'){
+    alerta.style.display='block';
+    document.getElementById('gr-salida-alerta-msg').innerHTML=
+      '🚫 DESPACHO BLOQUEADO — La GR <b>'+num+'</b> ya fue despachada el <b>'+exist.fecha_salida+'</b> a las <b>'+exist.hora_salida+'</b>'
+      +(exist.vigilante_salida?' por <b>'+exist.vigilante_salida+'</b>':'')+'.'
+      +' No puede salir nuevamente sin acreditar su reingreso previo.';
+    toast('⛔ ALERTA ANTIFRAUDE — GR bloqueada','err');
+    return;
+  }
+  const now=new Date();
+  const fotos=await leerFotos('gr-sal-fotos',3);
+  const vigilante=SESION_VIG.nombre||ROL||'SISTEMA';
+  const entry={
+    gr: num,
+    estado: 'DESPACHADO',
+    fecha_salida: now.toLocaleDateString('es-PE'),
+    hora_salida: now.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'}),
+    vigilante_salida: vigilante,
+    chofer: chofer,
+    fotos_salida: fotos,
+    fecha_reingreso: '',
+    hora_reingreso: '',
+    vigilante_reingreso: '',
+    motivo_reingreso: '',
+    fotos_reingreso: [],
+    ts: now.getTime()
+  };
+  // Si ya existía (REINGRESADO), reemplazar
+  const idx=vig.grs.findIndex(g=>g.gr.toUpperCase()===num);
+  if(idx>=0) vig.grs[idx]=entry; else vig.grs.push(entry);
+  saveVigilanciaGR();
+  // Limpiar form
+  document.getElementById('gr-sal-numero').value='';
+  document.getElementById('gr-sal-chofer').value='';
+  document.getElementById('gr-sal-fotos').value='';
+  document.getElementById('gr-sal-fotos-preview').innerHTML='';
+  alerta.style.display='none';
+  ok.style.display='block';
+  document.getElementById('gr-salida-ok-msg').innerHTML='✅ GR <b>'+num+'</b> registrada como DESPACHADA — '+now.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
+  toast('GR '+num+' despachada y registrada ✓','ok');
+}
+
+/* Registra el REINGRESO de una GR */
+async function registrarReingresoGR(){
+  const vig=initVig();
+  const num=(document.getElementById('gr-rei-numero').value||'').trim().toUpperCase();
+  const motivo=(document.getElementById('gr-rei-motivo').value||'');
+  const alerta=document.getElementById('gr-rei-alerta');
+  const ok=document.getElementById('gr-rei-ok');
+  if(!num){toast('Ingresa el número de GR','warn');return;}
+  const exist=vig.grs.find(g=>g.gr.toUpperCase()===num);
+  if(!exist){
+    alerta.style.display='block';
+    document.getElementById('gr-rei-alerta-msg').innerHTML='⚠ La GR <b>'+num+'</b> no tiene registro de salida en el sistema. Verifica el número.';
+    return;
+  }
+  if(exist.estado!=='DESPACHADO'){
+    alerta.style.display='block';
+    document.getElementById('gr-rei-alerta-msg').innerHTML='⚠ La GR <b>'+num+'</b> no está en estado DESPACHADO (estado actual: '+exist.estado+').';
+    return;
+  }
+  const now=new Date();
+  const fotos=await leerFotos('gr-rei-foto',1);
+  if(fotos.length===0){toast('Adjunta al menos una foto del reingreso','warn');return;}
+  const vigilante=SESION_VIG.nombre||ROL||'SISTEMA';
+  exist.estado='REINGRESADO';
+  exist.fecha_reingreso=now.toLocaleDateString('es-PE');
+  exist.hora_reingreso=now.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
+  exist.vigilante_reingreso=vigilante;
+  exist.motivo_reingreso=motivo;
+  exist.fotos_reingreso=fotos;
+  saveVigilanciaGR();
+  document.getElementById('gr-rei-numero').value='';
+  document.getElementById('gr-rei-foto').value='';
+  document.getElementById('gr-rei-foto-preview').innerHTML='';
+  alerta.style.display='none';
+  ok.style.display='block';
+  document.getElementById('gr-rei-ok-msg').innerHTML='✅ Reingreso de GR <b>'+num+'</b> acreditado — '+motivo+' — '+now.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
+  toast('Reingreso de GR '+num+' registrado ✓','ok');
+}
+
+/* Actualiza el dashboard de contadores */
+function renderGRDashboard(){
+  const vig=initVig();
+  const grs=vig.grs||[];
+  const todayStr=new Date().toLocaleDateString('es-PE');
+  const hoy=grs.filter(g=>g.fecha_salida===todayStr||g.fecha_reingreso===todayStr);
+  const pend=grs.filter(g=>!g.estado||g.estado==='PENDIENTE').length;
+  const desp=hoy.filter(g=>g.estado==='DESPACHADO').length;
+  const rein=hoy.filter(g=>g.estado==='REINGRESADO').length;
+  // alertas fraude = intentos bloqueados (no los guardamos, se cuentan por log)
+  const el=id=>document.getElementById(id);
+  if(el('gr-cnt-pendiente'))el('gr-cnt-pendiente').textContent=pend;
+  if(el('gr-cnt-despachado'))el('gr-cnt-despachado').textContent=desp;
+  if(el('gr-cnt-reingresado'))el('gr-cnt-reingresado').textContent=rein;
+  if(el('gr-cnt-bloqueado'))el('gr-cnt-bloqueado').textContent='—';
+}
+
+/* Tabla de registro del día */
+function renderGRRegistro(){
+  const vig=initVig();
+  const cont=document.getElementById('gr-registro-list');
+  if(!cont)return;
+  const q=(document.getElementById('gr-buscar')||{}).value||'';
+  const grs=[...(vig.grs||[])].reverse().filter(g=>!q||g.gr.toUpperCase().includes(q.toUpperCase()));
+  if(grs.length===0){
+    cont.innerHTML='<div style="text-align:center;padding:20px;color:#9CA3AF;font-size:12px">Sin registros'+(q?' que coincidan con "'+q+'"':'')+'</div>';
+    return;
+  }
+  const statusColor={DESPACHADO:'#D97706',REINGRESADO:'#2563EB',PENDIENTE:'#6B7280'};
+  const statusBg={DESPACHADO:'#FFF7ED',REINGRESADO:'#EFF6FF',PENDIENTE:'#F9FAFB'};
+  cont.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="background:#F9FAFB;border-bottom:2px solid #E5E7EB">
+      <th style="padding:8px;text-align:left;font-size:10px;color:#6B7280">GR</th>
+      <th style="padding:8px;text-align:center;font-size:10px;color:#6B7280">ESTADO</th>
+      <th style="padding:8px;text-align:center;font-size:10px;color:#6B7280">SALIDA</th>
+      <th style="padding:8px;text-align:center;font-size:10px;color:#6B7280">VIGILANTE SALIDA</th>
+      <th style="padding:8px;text-align:center;font-size:10px;color:#6B7280">CHOFER</th>
+      <th style="padding:8px;text-align:center;font-size:10px;color:#6B7280">REINGRESO</th>
+      <th style="padding:8px;text-align:center;font-size:10px;color:#6B7280">MOTIVO</th>
+      <th style="padding:8px;text-align:center;font-size:10px;color:#6B7280">FOTOS</th>
+    </tr></thead>
+    <tbody>
+    ${grs.map((g,i)=>{
+      const st=g.estado||'PENDIENTE';
+      const fotosTotal=(g.fotos_salida||[]).length+(g.fotos_reingreso||[]).length;
+      const todasFotos=[...(g.fotos_salida||[]),...(g.fotos_reingreso||[])];
+      const fotosHTML=todasFotos.map((f,fi)=>`<img src="${f}" style="width:40px;height:40px;object-fit:cover;border-radius:6px;border:2px solid #E5E7EB;cursor:pointer" onclick="this.style.width=this.style.width==='150px'?'40px':'150px';this.style.height=this.style.height==='150px'?'40px':'150px'" title="Ampliar">`).join('');
+      return`<tr style="border-bottom:1px solid #F3F4F6;background:${statusBg[st]||'#fff'}">
+        <td style="padding:8px;font-family:monospace;font-weight:700;font-size:12px">${g.gr}</td>
+        <td style="padding:8px;text-align:center"><span style="background:${statusColor[st]||'#6B7280'};color:white;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">${st}</span></td>
+        <td style="padding:8px;text-align:center;font-size:11px">${g.fecha_salida||'—'}<br><span style="color:#6B7280">${g.hora_salida||''}</span></td>
+        <td style="padding:8px;text-align:center;font-size:11px">${g.vigilante_salida||'—'}</td>
+        <td style="padding:8px;text-align:center;font-size:11px">${g.chofer||'—'}</td>
+        <td style="padding:8px;text-align:center;font-size:11px">${g.fecha_reingreso?g.fecha_reingreso+'<br><span style="color:#6B7280">'+g.hora_reingreso+'</span>':'—'}</td>
+        <td style="padding:8px;text-align:center;font-size:11px;max-width:120px">${g.motivo_reingreso||'—'}</td>
+        <td style="padding:8px;text-align:center">${fotosTotal>0?'<div style="display:flex;gap:3px;flex-wrap:wrap;justify-content:center">'+fotosHTML+'</div>':'<span style="color:#9CA3AF;font-size:10px">Sin foto</span>'}</td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>`;
+}
+
+/* Export CSV de GRs */
+function expGRCSV(){
+  const vig=initVig();
+  const grs=vig.grs||[];
+  if(!grs.length){toast('No hay GRs registradas','warn');return;}
+  let csv='GR,Estado,Fecha Salida,Hora Salida,Vigilante Salida,Chofer,Fecha Reingreso,Hora Reingreso,Vigilante Reingreso,Motivo Reingreso\n';
+  grs.forEach(g=>{
+    csv+=`"${g.gr}","${g.estado||''}","${g.fecha_salida||''}","${g.hora_salida||''}","${g.vigilante_salida||''}","${g.chofer||''}","${g.fecha_reingreso||''}","${g.hora_reingreso||''}","${g.vigilante_reingreso||''}","${g.motivo_reingreso||''}"\n`;
+  });
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent('﻿'+csv);
+  a.download='GRs_Vigilancia_'+new Date().toLocaleDateString('es-PE').replace(/\//g,'-')+'.csv';
+  a.click();
+  toast('CSV de GRs exportado ✓','ok');
+}
+
+/* Preview instantáneo de fotos seleccionadas */
+document.addEventListener('change',function(e){
+  if(e.target.id==='gr-sal-fotos'){
+    const prev=document.getElementById('gr-sal-fotos-preview');
+    if(!prev)return;
+    prev.innerHTML='';
+    Array.from(e.target.files).slice(0,3).forEach(f=>{
+      const r=new FileReader();
+      r.onload=ev=>{
+        const img=document.createElement('img');
+        img.src=ev.target.result;
+        img.style.cssText='width:64px;height:64px;object-fit:cover;border-radius:8px;border:2px solid #FCD34D';
+        prev.appendChild(img);
+      };
+      r.readAsDataURL(f);
+    });
+  }
+  if(e.target.id==='gr-rei-foto'){
+    const prev=document.getElementById('gr-rei-foto-preview');
+    if(!prev)return;
+    prev.innerHTML='';
+    const f=e.target.files[0];
+    if(!f)return;
+    const r=new FileReader();
+    r.onload=ev=>{
+      const img=document.createElement('img');
+      img.src=ev.target.result;
+      img.style.cssText='width:80px;height:80px;object-fit:cover;border-radius:8px;border:2px solid #BFDBFE';
+      prev.appendChild(img);
+    };
+    r.readAsDataURL(f);
+  }
+});
 
 // ══════════════════════════════════════════════════════════════════
 // ACREDITACIÓN DE ENTREGAS
