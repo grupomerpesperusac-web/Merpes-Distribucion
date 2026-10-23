@@ -276,6 +276,8 @@ tbody td:first-child{padding-left:14px}
 </style>
 <!-- SheetJS para leer archivos .xlsx directamente sin exportar a CSV -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- jsQR para leer/escanear códigos QR desde cámara móvil -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.min.js"></script>
 <!-- qrcode-generator embebido (sin CDN) — Kazuhiko Arase, MIT License -->
 <script>
 /* qrcode-generator v1.x — Kazuhiko Arase — MIT License */
@@ -2963,7 +2965,7 @@ if(typeof window !== "undefined") window.qrcode = qrcode;
   <div class="card"><div class="tb-wrap"><table>
     <thead><tr>
       <th>#</th><th>Pedido</th><th>Canal</th><th>Zona</th><th>Distrito</th>
-      <th>Cliente</th><th>Teléfono</th><th>Ventana</th><th>Producto</th>
+      <th>Cliente</th><th>RUC/DNI</th><th>Teléfono</th><th>Ventana</th><th>Producto</th>
       <th>Und</th><th>Kg</th><th>m³</th><th>S/.</th>
       <th style="background:#DCFCE7;color:#166534">Unidad ✏️</th>
       <th style="background:#DBEAFE;color:#1E40AF">Vuelta ✏️</th>
@@ -3266,6 +3268,117 @@ if(typeof window !== "undefined") window.qrcode = qrcode;
   <div class="ph" style="background:linear-gradient(135deg,#4C1D95 0%,#7C3AED 100%);border-radius:12px;padding:20px 24px;margin-bottom:20px">
     <h1 style="color:#fff;margin:0 0 6px">🔒 Vigilancia — Control Operativo</h1>
     <p style="color:#DDD6FE;margin:0;font-size:13px">Control antifraude de GRs • Hodómetro • Incidencias • Devoluciones</p>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       PANEL MÓVIL: ESCANEO QR Y CONFIRMACIÓN DE GR
+  ═══════════════════════════════════════════════════════ -->
+  <div class="card" style="margin-bottom:16px;border:2px solid #7C3AED;background:linear-gradient(135deg,#F5F3FF 0%,#EDE9FE 100%)">
+    <div class="ch" style="background:linear-gradient(135deg,#7C3AED,#6D28D9);border-left:4px solid #4C1D95">
+      <span class="ct" style="color:#fff">📱 Confirmación de GR — Escáner Móvil</span>
+      <span style="font-size:11px;color:#DDD6FE">Escanea el QR de la Hoja de Ruta impresa → completa series y fotos</span>
+    </div>
+    <div class="cb" style="padding:16px">
+
+      <!-- Sección 1: Escáner QR -->
+      <div id="vig-qr-section" style="margin-bottom:16px">
+        <div style="background:#fff;border-radius:12px;padding:14px;border:1.5px solid #C4B5FD;margin-bottom:12px">
+          <div style="font-size:13px;font-weight:700;color:#6D28D9;margin-bottom:10px">🔍 Paso 1 — Escanear QR de la Guía de Remisión</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+            <button onclick="iniciarEscanerQR()"
+              style="background:#7C3AED;color:white;border:none;border-radius:10px;padding:14px 20px;font-size:15px;font-weight:700;cursor:pointer;flex:1;min-width:200px;display:flex;align-items:center;justify-content:center;gap:8px">
+              <span style="font-size:20px">📷</span> Escanear QR con Cámara
+            </button>
+            <div style="color:#6B7280;font-size:12px;text-align:center">— o —</div>
+            <div style="flex:1;min-width:200px">
+              <input id="vig-qr-manual" type="text" placeholder="Número GR manual (Ej: 09-T002-00109713)"
+                style="width:100%;padding:12px;border:2px solid #C4B5FD;border-radius:10px;font-size:13px;font-family:monospace;box-sizing:border-box"
+                onkeydown="if(event.key==='Enter')buscarGRParaConfirmar(this.value)">
+              <button onclick="buscarGRParaConfirmar(document.getElementById('vig-qr-manual').value)"
+                style="width:100%;margin-top:6px;background:#6D28D9;color:white;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer">
+                🔎 Buscar GR
+              </button>
+            </div>
+          </div>
+          <!-- Visor de cámara para QR -->
+          <div id="vig-qr-camara-wrap" style="display:none;position:relative;border-radius:12px;overflow:hidden;background:#000;max-width:400px;margin:0 auto">
+            <video id="vig-qr-video" style="width:100%;display:block" autoplay playsinline muted></video>
+            <canvas id="vig-qr-canvas" style="display:none"></canvas>
+            <div style="position:absolute;inset:0;border:3px solid #7C3AED;border-radius:12px;pointer-events:none">
+              <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:60%;height:60%;border:2px solid #A78BFA;border-radius:8px;box-shadow:0 0 0 9999px rgba(0,0,0,0.4)"></div>
+            </div>
+            <div style="position:absolute;bottom:12px;width:100%;text-align:center">
+              <button onclick="detenerEscanerQR()"
+                style="background:rgba(220,38,38,0.9);color:white;border:none;border-radius:20px;padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer">
+                ✕ Cancelar
+              </button>
+            </div>
+          </div>
+          <div id="vig-qr-resultado" style="display:none;margin-top:10px;padding:10px;background:#F0FDF4;border:2px solid #22C55E;border-radius:8px;font-size:13px;color:#166534;font-weight:700"></div>
+        </div>
+      </div>
+
+      <!-- Sección 2: Formulario de confirmación GR (se muestra tras escanear) -->
+      <div id="vig-confirm-form" style="display:none">
+        <div style="background:#fff;border-radius:12px;padding:14px;border:1.5px solid #86EFAC;margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+            <div>
+              <div style="font-size:11px;color:#6B7280;font-weight:600;margin-bottom:2px">GUÍA DE REMISIÓN</div>
+              <div id="vig-cf-gr-num" style="font-size:18px;font-weight:900;color:#1E40AF;font-family:monospace">—</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:11px;color:#6B7280">Pedido:</div>
+              <div id="vig-cf-pedido" style="font-size:13px;font-weight:700;color:#374151;font-family:monospace">—</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+            <div style="flex:2;min-width:140px">
+              <div style="font-size:10px;color:#6B7280;font-weight:600">CLIENTE</div>
+              <div id="vig-cf-cliente" style="font-size:13px;font-weight:700;color:#374151">—</div>
+            </div>
+            <div style="flex:1;min-width:100px">
+              <div style="font-size:10px;color:#6B7280;font-weight:600">UNIDAD</div>
+              <div id="vig-cf-unidad" style="font-size:13px;font-weight:700;color:#7C3AED">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Lista de productos con series -->
+        <div style="background:#fff;border-radius:12px;padding:14px;border:1.5px solid #C4B5FD;margin-bottom:12px">
+          <div style="font-size:13px;font-weight:700;color:#6D28D9;margin-bottom:10px">📦 Paso 2 — Registrar Series de Productos</div>
+          <div id="vig-cf-productos-lista" style="font-size:12px;color:#9CA3AF;text-align:center;padding:20px">
+            Cargando productos...
+          </div>
+        </div>
+
+        <!-- Fotos de confirmación -->
+        <div style="background:#fff;border-radius:12px;padding:14px;border:1.5px solid #FCD34D;margin-bottom:12px">
+          <div style="font-size:13px;font-weight:700;color:#B45309;margin-bottom:6px">📸 Paso 3 — Evidencia Fotográfica</div>
+          <div style="font-size:11px;color:#6B7280;margin-bottom:10px">Mínimo 1 foto requerida • Máximo 6 fotos • Usa la cámara trasera</div>
+          <input id="vig-cf-fotos-input" type="file" accept="image/*" capture="environment" multiple
+            style="width:100%;font-size:12px;padding:10px;border:2px dashed #FCD34D;border-radius:10px;box-sizing:border-box;background:#FFFBEB"
+            onchange="vigMostrarFotosPreview(this,'vig-cf-fotos-preview',6)">
+          <div id="vig-cf-fotos-preview" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px"></div>
+          <div id="vig-cf-fotos-contador" style="font-size:11px;color:#9CA3AF;margin-top:4px;text-align:center">0 / 6 fotos</div>
+        </div>
+
+        <!-- Indicador de completitud -->
+        <div id="vig-cf-estado" style="padding:12px;border-radius:10px;margin-bottom:12px;font-size:13px;font-weight:700;text-align:center;background:#FEF3C7;color:#92400E;border:2px solid #FCD34D">
+          ⏳ Completa las series y agrega al menos 1 foto para habilitar la confirmación
+        </div>
+
+        <!-- Botón confirmar (se activa cuando todo está completo) -->
+        <button id="vig-cf-btn-confirmar" disabled onclick="confirmarGRVigilancia()"
+          style="width:100%;padding:16px;font-size:16px;font-weight:700;border:none;border-radius:12px;cursor:not-allowed;background:#D1D5DB;color:#9CA3AF;transition:all 0.3s">
+          🔒 Confirmar GR — Completa series y fotos primero
+        </button>
+        <button onclick="cerrarConfirmacionGR()"
+          style="width:100%;margin-top:8px;padding:10px;font-size:13px;font-weight:600;border:2px solid #D1D5DB;border-radius:10px;cursor:pointer;background:#fff;color:#6B7280">
+          ← Volver / Escanear otra GR
+        </button>
+      </div>
+
+    </div>
   </div>
 
   <!-- ═══════════════════════════════════════════════════════
@@ -4971,6 +5084,7 @@ function renderMotor(pgReset){
       <td><span class="zb z${zc}">${p.zona}</span></td>
       <td style="font-size:12px">${p.distrito||'—'}</td>
       <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px" title="${p.cliente}">${p.cliente||'—'}</td>
+      <td style="font-family:monospace;font-size:11px;color:#0F766E;font-weight:600">${p.ruc||p.dni||p.documento||'—'}</td>
       <td style="font-family:monospace;font-size:11px">${p.tel||'—'}</td>
       <td style="background:${vb};font-size:11px;white-space:nowrap">${p.ventana||'—'}</td>
       <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px" title="${p.producto}">${p.producto||'—'}</td>
@@ -7898,6 +8012,368 @@ function expGRCSV(){
   a.download='GRs_Vigilancia_'+new Date().toLocaleDateString('es-PE').replace(/\//g,'-')+'.csv';
   a.click();
   toast('CSV de GRs exportado ✓','ok');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// SISTEMA MÓVIL DE CONFIRMACIÓN DE GR — VIGILANCIA
+// ══════════════════════════════════════════════════════════════════
+
+/* Estado del escáner QR */
+let _vigQRStream = null;
+let _vigQRAnimFrame = null;
+let _vigGRActual = null; // {gr, pedido, cliente, unidad, productos:[{sku,desc,und,requiereSerie}], ...}
+
+/* Inicia la cámara trasera para escanear QR */
+function iniciarEscanerQR(){
+  const wrap = document.getElementById('vig-qr-camara-wrap');
+  const video = document.getElementById('vig-qr-video');
+  if(!wrap || !video){toast('No se encontró el visor de cámara','warn'); return;}
+
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    toast('Tu dispositivo no soporta acceso a cámara','warn'); return;
+  }
+  wrap.style.display = 'block';
+  document.getElementById('vig-qr-resultado').style.display = 'none';
+
+  navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+  }).then(stream => {
+    _vigQRStream = stream;
+    video.srcObject = stream;
+    video.play();
+    video.addEventListener('playing', _vigQRTick, { once: true });
+  }).catch(err => {
+    wrap.style.display = 'none';
+    if(err.name === 'NotAllowedError'){
+      toast('Permiso de cámara denegado — usa el ingreso manual','warn');
+    } else {
+      toast('Error al acceder a la cámara: '+err.message,'warn');
+    }
+  });
+}
+
+/* Loop de análisis de frames para detectar QR */
+function _vigQRTick(){
+  const video = document.getElementById('vig-qr-video');
+  const canvas = document.getElementById('vig-qr-canvas');
+  if(!video || !canvas || !_vigQRStream) return;
+
+  const ctx = canvas.getContext('2d');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  let detected = null;
+  try {
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    detected = typeof jsQR !== 'undefined' ? jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' }) : null;
+  } catch(e){}
+
+  if(detected && detected.data){
+    detenerEscanerQR();
+    const qrData = detected.data.trim();
+    const resEl = document.getElementById('vig-qr-resultado');
+    if(resEl){ resEl.style.display='block'; resEl.textContent='✅ QR detectado: '+qrData; }
+    setTimeout(()=>{ buscarGRParaConfirmar(qrData); }, 500);
+  } else {
+    _vigQRAnimFrame = requestAnimationFrame(_vigQRTick);
+  }
+}
+
+/* Detiene la cámara QR */
+function detenerEscanerQR(){
+  if(_vigQRAnimFrame){ cancelAnimationFrame(_vigQRAnimFrame); _vigQRAnimFrame=null; }
+  if(_vigQRStream){ _vigQRStream.getTracks().forEach(t=>t.stop()); _vigQRStream=null; }
+  const wrap = document.getElementById('vig-qr-camara-wrap');
+  if(wrap) wrap.style.display = 'none';
+}
+
+/* Extrae número de GR del contenido del QR (puede ser un texto o JSON) */
+function extraerNumeroGR(qrData){
+  if(!qrData) return '';
+  // Intentar parsear como JSON (si la Hoja de Ruta tiene JSON en el QR)
+  try {
+    const obj = JSON.parse(qrData);
+    return (obj.gr || obj.GR || obj.numero || obj.num || '').toString().trim().toUpperCase();
+  } catch(e){}
+  // Si contiene el formato típico de GR: 09-T002-XXXXXXXX o similar
+  const match = qrData.match(/\b(\d{2}-[A-Z]\d{3}-\d{6,10})\b/i);
+  if(match) return match[1].toUpperCase();
+  // Si es solo texto, devolverlo limpio
+  return qrData.trim().toUpperCase();
+}
+
+/* Busca la GR en los pedidos de ST y construye el formulario de confirmación */
+function buscarGRParaConfirmar(rawInput){
+  const numGR = extraerNumeroGR(rawInput);
+  if(!numGR){ toast('Ingresa un número de GR válido','warn'); return; }
+
+  // Buscar en pedidos asociados a la GR
+  // La GR puede estar como p.gr o extraerse del número de pedido
+  const pedidosGR = (ST.pedidos||[]).filter(p=>{
+    const grPed = (p.gr||p.guia||p.numero||'').toString().toUpperCase();
+    const numPed = (p.numero||'').toString().toUpperCase();
+    return grPed === numGR || numPed === numGR;
+  });
+
+  // También verificar en el registro de GRs de vigilancia
+  const grRegistro = ((ST.vigilancia||{}).grs||[]).find(g=>(g.gr||'').toUpperCase()===numGR);
+
+  if(pedidosGR.length === 0 && !grRegistro){
+    toast('GR '+numGR+' no encontrada en el sistema. Verifica el número.','warn');
+    const resEl = document.getElementById('vig-qr-resultado');
+    if(resEl){ resEl.style.display='block'; resEl.style.background='#FEF2F2'; resEl.style.borderColor='#EF4444'; resEl.style.color='#DC2626'; resEl.textContent='❌ GR no encontrada: '+numGR; }
+    return;
+  }
+
+  // Consolidar datos de la GR
+  const primerPed = pedidosGR[0] || {};
+  const productos = pedidosGR.map(p=>({
+    sku: p.sku||p.codigo||'',
+    desc: p.producto||p.descripcion||'Producto',
+    und: +(p.und||p.cantidad||1),
+    peso: +(p.peso||0),
+    requiereSerie: esSeriado(p),
+    series: [],
+    pedido: p.numero||numGR
+  }));
+
+  // Si no hay pedidos pero hay registro de GR, usar datos del registro
+  if(productos.length===0 && grRegistro){
+    productos.push({ sku:'', desc:'Productos de GR '+numGR, und:1, requiereSerie:false, series:[], pedido:numGR });
+  }
+
+  _vigGRActual = {
+    gr: numGR,
+    pedido: primerPed.numero||numGR,
+    cliente: primerPed.cliente||grRegistro?.chofer||'—',
+    unidad: primerPed.unidad||grRegistro?.chofer||'—',
+    productos: productos,
+    fotos: []
+  };
+
+  renderConfirmacionGR();
+}
+
+/* Determina si un producto requiere número de serie */
+function esSeriado(p){
+  const desc = (p.producto||p.descripcion||p.sku||'').toUpperCase();
+  const NO_SERIE = ['ACCESORIO','CASCO','CARGADOR','CABLE','REPUESTO','ACEITE','KIT'];
+  if(NO_SERIE.some(k=>desc.includes(k))) return false;
+  // Motos y equipos electrónicos requieren serie
+  const CON_SERIE = ['MOTO','BICICLETA','SCOOTER','TV','TELEVISOR','REFRIGER','LAVAD','LAPTOP','CELULAR','TABLET','NEVERA'];
+  if(CON_SERIE.some(k=>desc.includes(k))) return true;
+  // Por defecto, si tiene serie en los datos del pedido
+  return !!(p.serie||p.serial);
+}
+
+/* Renderiza el formulario de confirmación con la lista de productos */
+function renderConfirmacionGR(){
+  if(!_vigGRActual){ return; }
+  const gr = _vigGRActual;
+
+  // Mostrar sección de confirmación
+  document.getElementById('vig-confirm-form').style.display = 'block';
+  document.getElementById('vig-qr-resultado').style.display = 'none';
+
+  // Cabecera
+  document.getElementById('vig-cf-gr-num').textContent = gr.gr;
+  document.getElementById('vig-cf-pedido').textContent = gr.pedido;
+  document.getElementById('vig-cf-cliente').textContent = gr.cliente;
+  document.getElementById('vig-cf-unidad').textContent = gr.unidad;
+
+  // Lista de productos
+  const lista = document.getElementById('vig-cf-productos-lista');
+  if(!lista) return;
+
+  if(gr.productos.length === 0){
+    lista.innerHTML = '<div style="color:#9CA3AF;text-align:center;padding:20px">Sin productos registrados para esta GR</div>';
+  } else {
+    lista.innerHTML = gr.productos.map((prod, idx)=>`
+      <div style="border:1.5px solid ${prod.requiereSerie?'#FCD34D':'#E5E7EB'};border-radius:10px;padding:12px;margin-bottom:8px;background:${prod.requiereSerie?'#FFFBEB':'#F9FAFB'}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:${prod.requiereSerie?'10px':'0'}">
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:700;color:#374151">${prod.desc}</div>
+            ${prod.sku?`<div style="font-size:10px;color:#6B7280;font-family:monospace">SKU: ${prod.sku}</div>`:''}
+            <div style="font-size:11px;color:#6B7280;margin-top:2px">Cantidad: <strong>${prod.und}</strong> unid.</div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+            ${prod.requiereSerie
+              ? `<span style="background:#FEF3C7;color:#B45309;padding:3px 8px;border-radius:8px;font-size:10px;font-weight:700">🔢 SERIE REQUERIDA</span>`
+              : `<span style="background:#F0FDF4;color:#166534;padding:3px 8px;border-radius:8px;font-size:10px;font-weight:700">✓ Sin serie</span>`
+            }
+          </div>
+        </div>
+        ${prod.requiereSerie ? `
+          <div>
+            ${Array.from({length: prod.und}).map((_,si)=>`
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <span style="font-size:11px;color:#6B7280;min-width:60px">Serie ${si+1}:</span>
+                <input type="text" id="vig-serie-${idx}-${si}" placeholder="Número de serie"
+                  style="flex:1;padding:9px 12px;border:2px solid #FCD34D;border-radius:8px;font-size:13px;font-family:monospace;box-sizing:border-box"
+                  oninput="vigValidarCompletitud()" value="${(prod.series&&prod.series[si])||''}">
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      </div>
+    `).join('');
+  }
+
+  // Limpiar fotos y contador
+  document.getElementById('vig-cf-fotos-input').value = '';
+  document.getElementById('vig-cf-fotos-preview').innerHTML = '';
+  document.getElementById('vig-cf-fotos-contador').textContent = '0 / 6 fotos';
+  _vigGRActual.fotos = [];
+
+  vigValidarCompletitud();
+
+  // Scroll al formulario
+  document.getElementById('vig-confirm-form').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+/* Valida si todas las series están completas y hay fotos → activa el botón */
+function vigValidarCompletitud(){
+  if(!_vigGRActual) return;
+  const gr = _vigGRActual;
+  const btn = document.getElementById('vig-cf-btn-confirmar');
+  const estadoEl = document.getElementById('vig-cf-estado');
+  if(!btn || !estadoEl) return;
+
+  let todasSeries = true;
+  let faltanSeries = [];
+
+  gr.productos.forEach((prod, idx)=>{
+    if(prod.requiereSerie){
+      for(let si=0; si<prod.und; si++){
+        const inp = document.getElementById(`vig-serie-${idx}-${si}`);
+        const val = (inp ? inp.value : '').trim();
+        if(!val){ todasSeries=false; faltanSeries.push(`${prod.desc} — Serie ${si+1}`); }
+        else { if(!gr.productos[idx].series) gr.productos[idx].series=[]; gr.productos[idx].series[si]=val; }
+      }
+    }
+  });
+
+  const numFotos = _vigGRActual.fotos ? _vigGRActual.fotos.length : 0;
+  const hayFotos = numFotos >= 1;
+
+  if(todasSeries && hayFotos){
+    btn.disabled = false;
+    btn.style.cssText = 'width:100%;padding:16px;font-size:16px;font-weight:700;border:none;border-radius:12px;cursor:pointer;background:linear-gradient(135deg,#059669,#10B981);color:white;box-shadow:0 4px 15px rgba(16,185,129,0.4);transition:all 0.3s';
+    btn.textContent = '✅ Confirmar GR — Todo completo';
+    estadoEl.style.cssText = 'padding:12px;border-radius:10px;margin-bottom:12px;font-size:13px;font-weight:700;text-align:center;background:#ECFDF5;color:#065F46;border:2px solid #6EE7B7';
+    estadoEl.textContent = '✅ Todo completo — puedes confirmar la GR';
+  } else {
+    btn.disabled = true;
+    btn.style.cssText = 'width:100%;padding:16px;font-size:16px;font-weight:700;border:none;border-radius:12px;cursor:not-allowed;background:#D1D5DB;color:#9CA3AF;transition:all 0.3s';
+    btn.textContent = '🔒 Confirmar GR — Completa series y fotos primero';
+    let msg = '';
+    if(!todasSeries) msg += `⚠ Faltan series: ${faltanSeries.slice(0,2).join(', ')}${faltanSeries.length>2?' y '+(faltanSeries.length-2)+' más':''}. `;
+    if(!hayFotos) msg += '📸 Agrega al menos 1 foto de evidencia.';
+    estadoEl.style.cssText = 'padding:12px;border-radius:10px;margin-bottom:12px;font-size:13px;font-weight:700;text-align:center;background:#FEF3C7;color:#92400E;border:2px solid #FCD34D';
+    estadoEl.textContent = msg || '⏳ Completando datos...';
+  }
+}
+
+/* Muestra preview de fotos y actualiza el estado */
+function vigMostrarFotosPreview(input, previewId, maxFotos){
+  const prevEl = document.getElementById(previewId);
+  const contEl = document.getElementById('vig-cf-fotos-contador');
+  if(!prevEl || !input.files) return;
+  const files = Array.from(input.files).slice(0, maxFotos||6);
+  prevEl.innerHTML = '';
+  const promises = files.map(f=>new Promise(res=>{
+    const r = new FileReader();
+    r.onload = e=>{ res(e.target.result); };
+    r.readAsDataURL(f);
+  }));
+  Promise.all(promises).then(base64Array=>{
+    if(_vigGRActual) _vigGRActual.fotos = base64Array;
+    prevEl.innerHTML = base64Array.map((src,i)=>`
+      <div style="position:relative;display:inline-block">
+        <img src="${src}" style="width:72px;height:72px;object-fit:cover;border-radius:10px;border:2px solid #7C3AED;cursor:pointer"
+          onclick="vigAmpliarFoto(this)" title="Toca para ampliar">
+        <div style="position:absolute;top:-4px;right:-4px;background:#7C3AED;color:white;width:18px;height:18px;border-radius:50%;font-size:10px;display:flex;align-items:center;justify-content:center;font-weight:700">${i+1}</div>
+      </div>
+    `).join('');
+    if(contEl) contEl.textContent = base64Array.length+' / '+maxFotos+' fotos';
+    vigValidarCompletitud();
+  });
+}
+
+/* Amplía una foto al hacer clic */
+function vigAmpliarFoto(imgEl){
+  imgEl.style.width = imgEl.style.width === '200px' ? '72px' : '200px';
+  imgEl.style.height = imgEl.style.height === '200px' ? '72px' : '200px';
+}
+
+/* Confirma la GR: guarda en ST.vigilancia.confirmaciones y en el registro de GRs */
+function confirmarGRVigilancia(){
+  if(!_vigGRActual){ toast('No hay GR activa','warn'); return; }
+  const gr = _vigGRActual;
+
+  // Recolectar series finales
+  gr.productos.forEach((prod, idx)=>{
+    if(prod.requiereSerie){
+      prod.series = [];
+      for(let si=0; si<prod.und; si++){
+        const inp = document.getElementById(`vig-serie-${idx}-${si}`);
+        if(inp) prod.series.push(inp.value.trim());
+      }
+    }
+  });
+
+  const now = new Date();
+  const vigilante = (typeof SESION_VIG !== 'undefined' ? SESION_VIG.nombre : '') || (typeof ROL !== 'undefined' ? ROL : '') || 'VIGILANTE';
+
+  // Guardar en confirmaciones
+  if(!ST.vigilancia) initVig();
+  if(!ST.vigilancia.confirmaciones) ST.vigilancia.confirmaciones = [];
+
+  const confEntry = {
+    id: 'CONF-'+Date.now(),
+    gr: gr.gr,
+    pedido: gr.pedido,
+    cliente: gr.cliente,
+    unidad: gr.unidad,
+    productos: gr.productos,
+    fotos_confirmacion: gr.fotos||[],
+    fecha: now.toLocaleDateString('es-PE'),
+    hora: now.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'}),
+    vigilante: vigilante,
+    ts: now.getTime()
+  };
+  ST.vigilancia.confirmaciones.push(confEntry);
+
+  // También actualizar el registro de GRs si existe
+  const grReg = (ST.vigilancia.grs||[]).find(g=>(g.gr||'').toUpperCase()===gr.gr.toUpperCase());
+  if(grReg){
+    grReg.confirmada = true;
+    grReg.fecha_confirmacion = confEntry.fecha;
+    grReg.hora_confirmacion = confEntry.hora;
+    grReg.vigilante_confirmacion = vigilante;
+    grReg.series_confirmadas = gr.productos.map(p=>({sku:p.sku,desc:p.desc,series:p.series||[]}));
+    grReg.fotos_confirmacion = gr.fotos||[];
+  }
+
+  save();
+  try{ renderGRDashboard(); }catch(e){}
+  try{ renderGRRegistro(); }catch(e){}
+
+  // Resetear estado
+  cerrarConfirmacionGR();
+  toast('✅ GR '+gr.gr+' confirmada correctamente — '+confEntry.hora,'ok');
+}
+
+/* Cierra el formulario de confirmación y vuelve al escáner */
+function cerrarConfirmacionGR(){
+  _vigGRActual = null;
+  const form = document.getElementById('vig-confirm-form');
+  if(form) form.style.display = 'none';
+  const resEl = document.getElementById('vig-qr-resultado');
+  if(resEl){ resEl.style.display='none'; resEl.style.background='#F0FDF4'; resEl.style.borderColor='#22C55E'; resEl.style.color='#166534'; }
+  const manualInp = document.getElementById('vig-qr-manual');
+  if(manualInp) manualInp.value = '';
 }
 
 /* Preview instantáneo de fotos seleccionadas */
