@@ -4102,7 +4102,7 @@ function doLogin(rol) {
   if(!ST.cargados) ST.cargados={espe:0,rptr:0,base:0,conf:0,trans:0,myb:0,docs:0};
   if(ST.cargados.docs===undefined) ST.cargados.docs=0;
   try{ const f=localStorage.getItem('mrp_fl2'); if(f) flota=JSON.parse(f); }catch(e){}
-  try{ GS_URL = localStorage.getItem('mrp_gs_url') || ''; }catch(e){}
+  try{ GS_URL = localStorage.getItem('mrp_gs_url') || GS_URL; }catch(e){}
   // Indicador de sincronización: verde si hay datos locales, negro solo si no hay nada
   if(localRestored) setSyncStatus('ok','Datos locales restaurados ✓ ('+((ST.pedidos||[]).length)+' pedidos)');
   document.getElementById('login_screen').style.display = 'none';
@@ -4170,6 +4170,54 @@ async function gsPost(payload) {
     const j = await r.json();
     return j && j.ok;
   } catch(e) { return false; }
+}
+
+// Guarda un módulo individual en el servidor (para flujo multi-usuario)
+async function gsPostModule(modulo, data) {
+  if (!GS_URL) return false;
+  try {
+    const r = await fetch(GS_URL + '?action=save_module&t=' + Date.now(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ modulo, data, ts: Date.now() })
+    });
+    if (!r.ok) return false;
+    const j = await r.json();
+    return j && j.ok;
+  } catch(e) { return false; }
+}
+
+// Carga todos los módulos del servidor y los fusiona en ST
+async function gsGetAllModules() {
+  if (!GS_URL) return null;
+  try {
+    const r = await fetch(GS_URL + '?action=load_modules&t=' + Date.now());
+    if (!r.ok) return null;
+    const j = await r.json();
+    return j && j.ok ? j.modules : null;
+  } catch(e) { return null; }
+}
+
+// Aplica módulos del servidor al ST actual
+async function aplicarModulosServidor() {
+  const modules = await gsGetAllModules();
+  if (!modules) return false;
+  let aplicados = 0;
+  const mapa = {
+    espe:  (d) => { if(d && d.length) { ST.pedidos=d; ST.espe_todos=d; ST.cargados.espe=d.length; aplicados++; } },
+    rptr:  (d) => { if(d && d.length) { ST.pedidos_rptr=d; ST.cargados.rptr=d.length; aplicados++; } },
+    base:  (d) => { if(d && d.length) { ST.base_diaria=d; ST.cargados.base=d.length; aplicados++; } },
+    conf:  (d) => { if(d && d.length) { ST.confirmaciones=d; ST.cargados.conf=d.length; aplicados++; } },
+    trans: (d) => { if(d && d.length) { ST.transito=d; ST.cargados.trans=d.length; aplicados++; } },
+    myb:   (d) => { if(d && d.length) { ST.mybees=d; ST.cargados.myb=d.length; aplicados++; } },
+  };
+  Object.keys(mapa).forEach(k => { if(modules[k]) mapa[k](modules[k]); });
+  if(modules.flota) flota = modules.flota;
+  if(aplicados > 0) {
+    try { localStorage.setItem('mrp_st2', JSON.stringify(ST)); } catch(e) {}
+    renderAll(); renderIntStatus();
+  }
+  return aplicados;
 }
 
 async function syncNow() {
@@ -4535,9 +4583,19 @@ function lfo(f,t){
   }
 }
 function pp(t){const v=document.getElementById('pa-'+t).value;if(!v.trim()){return false;}csv(v,t);document.getElementById('pa-'+t).value='';return true;}
-function procesarTodo(){
+async function procesarTodo(){
   const tipos=['espe','rptr','base','conf','trans','myb'];
   const el=document.getElementById('msg-global');
+
+  // PASO 0: Si hay servidor configurado, descargar módulos subidos por otros usuarios
+  if(GS_URL){
+    el.innerHTML='<span style="color:#F7941D;font-weight:600">🔄 Descargando datos del equipo...</span>';
+    setSyncStatus('busy','Descargando módulos del equipo...');
+    const aplicados = await aplicarModulosServidor();
+    if(aplicados>0){
+      el.innerHTML='<span style="color:#16A34A;font-weight:600">🟢 '+aplicados+' módulo(s) descargados del servidor</span>';
+    }
+  }
 
   // Primero intentar procesar textareas (modo pegar)
   let procesadosPaste=0;
@@ -4546,17 +4604,19 @@ function procesarTodo(){
     if(v.trim()){csv(v,t);document.getElementById('pa-'+t).value='';procesadosPaste++;}
   });
 
-  // Verificar cuántos reportes ya tienen data en ST (cargados vía drag-drop o paste previo)
+  // Verificar cuántos reportes ya tienen data en ST (cargados vía drag-drop, paste o servidor)
   const yaEnST=tipos.filter(t=>ST.cargados[t]>0);
 
   if(procesadosPaste>0||yaEnST.length>0){
     const totalEnST=tipos.filter(t=>ST.cargados[t]>0);
     const resumen=totalEnST.map(t=>t.toUpperCase()+'='+ST.cargados[t]).join(' | ');
     el.innerHTML='<span style="color:#16A34A;font-weight:600">✅ Datos listos — '+(procesadosPaste>0?procesadosPaste+' procesado'+(procesadosPaste>1?'s':'')+' ahora; ':'')+totalEnST.length+' reportes activos: '+resumen+'</span>';
+    setSyncStatus('ok','Datos sincronizados del equipo ✓');
     renderAll();
     renderIntStatus();
   } else {
     el.innerHTML='<span style="color:#DC2626">⚠️ No hay datos cargados. Arrastra los archivos .xlsx sobre cada panel o pega el contenido copiado.</span>';
+    setSyncStatus('err','Sin datos del equipo ni locales');
   }
   setTimeout(()=>{el.innerHTML='';},7000);
 }
@@ -4622,6 +4682,13 @@ function pE(rows){
   document.getElementById('espe-c').textContent=n+' pedidos';
   smsg('espe','ok','✅ '+n+' pedidos del ESPE integrados');
   save();renderAll();renderIntStatus();
+  // Auto-subir módulo ESPE al servidor compartido
+  if(GS_URL && n>0){
+    setSyncStatus('busy','Subiendo ESPE al servidor...');
+    gsPostModule('espe', ST.espe_todos||ST.pedidos.filter(p=>p.fuente==='ESPE')).then(ok=>{
+      setSyncStatus(ok?'ok':'err', ok?'🟢 ESPE subido al servidor ✓':'🔴 Error subiendo ESPE');
+    });
+  }
 }
 
 // --- RPTR ---
@@ -4720,6 +4787,13 @@ function pR(rows){
   document.getElementById('rptr-c').textContent=n+' ítems';
   smsg('rptr','ok','✅ '+n+' ítems RPTR procesados');
   save();renderAll();renderIntStatus();
+  // Auto-subir módulo RPTR al servidor compartido
+  if(GS_URL && n>0){
+    setSyncStatus('busy','Subiendo RPTR al servidor...');
+    gsPostModule('rptr', ST.pedidos_rptr||[]).then(ok=>{
+      setSyncStatus(ok?'ok':'err', ok?'🟢 RPTR subido al servidor ✓':'🔴 Error subiendo RPTR');
+    });
+  }
 }
 
 // --- BASE DIARIA ---
@@ -4759,6 +4833,13 @@ function pBase(rows){
   document.getElementById('base-c').textContent=n+' registros';
   smsg('base','ok','✅ '+n+' registros de Base Diaria integrados');
   save();renderAll();renderIntStatus();
+  // Auto-subir módulo BASE al servidor compartido
+  if(GS_URL && n>0){
+    setSyncStatus('busy','Subiendo Base Diaria al servidor...');
+    gsPostModule('base', ST.base_diaria||[]).then(ok=>{
+      setSyncStatus(ok?'ok':'err', ok?'🟢 Base Diaria subida al servidor ✓':'🔴 Error subiendo Base Diaria');
+    });
+  }
 }
 
 // --- CONFIRMACIONES ---
@@ -4786,6 +4867,13 @@ function pConf(rows){
   document.getElementById('conf-c').textContent=rows.length+' registros · '+enr+' cruzados';
   smsg('conf','ok','✅ '+co+' confirmados · '+re+' rechazos · '+enr+' enriquecidos');
   save();renderAll();renderIntStatus();
+  // Auto-subir módulo CONF al servidor compartido
+  if(GS_URL && rows.length>0){
+    setSyncStatus('busy','Subiendo Confirmaciones al servidor...');
+    gsPostModule('conf', rows).then(ok=>{
+      setSyncStatus(ok?'ok':'err', ok?'🟢 Confirmaciones subidas al servidor ✓':'🔴 Error subiendo Confirmaciones');
+    });
+  }
 }
 
 // --- TRÁNSITO ---
@@ -4815,6 +4903,13 @@ function pTrans(rows){
   document.getElementById('trans-c').textContent=rows.length+' registros · '+enr+' cruzados';
   smsg('trans','ok','✅ '+rows.length+' registros Tránsito · '+enr+' enriquecidos en motor');
   save();renderAll();renderIntStatus();
+  // Auto-subir módulo TRANS al servidor compartido
+  if(GS_URL && rows.length>0){
+    setSyncStatus('busy','Subiendo Tránsito al servidor...');
+    gsPostModule('trans', rows).then(ok=>{
+      setSyncStatus(ok?'ok':'err', ok?'🟢 Tránsito subido al servidor ✓':'🔴 Error subiendo Tránsito');
+    });
+  }
 }
 
 // --- MYBEES ---
@@ -4887,6 +4982,13 @@ function pMyb(rows){
   document.getElementById('myb-c').textContent=n+' registros';
   smsg('myb','ok','✅ '+n+' registros Mybees integrados');
   save();renderAll();renderIntStatus();
+  // Auto-subir módulo MYBEES al servidor compartido
+  if(GS_URL && n>0){
+    setSyncStatus('busy','Subiendo Mybees al servidor...');
+    gsPostModule('myb', ST.mybees||ST.pedidos.filter(p=>p.fuente==='MYBEES')).then(ok=>{
+      setSyncStatus(ok?'ok':'err', ok?'🟢 Mybees subido al servidor ✓':'🔴 Error subiendo Mybees');
+    });
+  }
 }
 
 // --- DOCS RELACIONADOS SIG ---
