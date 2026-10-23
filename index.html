@@ -4202,7 +4202,11 @@ setInterval(()=>{ if(ROL) syncNow(); }, 60000);
 function showConfig() {
   const m = document.getElementById('cfg_modal');
   document.getElementById('gs_url_inp').value = GS_URL;
+  // Mostrar token guardado (enmascarado)
+  const tkInp = document.getElementById('sp_token_inp');
+  if(tkInp){ const t=spGetToken(); tkInp.value=t?'••••••••••••••••••••':'';}
   m.style.display = 'flex';
+  try{ spRenderPendientes(); }catch(e){}
 }
 
 function saveConfig() {
@@ -8357,12 +8361,18 @@ function confirmarGRVigilancia(){
   }
 
   save();
+
+  // ── Encolar fotos para subida a SharePoint LIQUIDACION ──
+  try{ spEncoleFotos(confEntry); }catch(e){ console.warn('spEncoleFotos error',e); }
+
   try{ renderGRDashboard(); }catch(e){}
   try{ renderGRRegistro(); }catch(e){}
 
   // Resetear estado
   cerrarConfirmacionGR();
-  toast('✅ GR '+gr.gr+' confirmada correctamente — '+confEntry.hora,'ok');
+  const nFotosConf = (confEntry.fotos_confirmacion||[]).length;
+  const msgFotosConf = nFotosConf ? ` · ${nFotosConf} foto(s) en cola → SharePoint` : '';
+  toast('✅ GR '+gr.gr+' confirmada correctamente — '+confEntry.hora+msgFotosConf,'ok');
 }
 
 /* Cierra el formulario de confirmación y vuelve al escáner */
@@ -8724,13 +8734,338 @@ function expAcreditacionCSV(){
 }
 
 // showTab ya incluye todos los módulos — definido arriba en línea ~3983
+
+/* ═══════════════════════════════════════════════════════════════════
+   SHAREPOINT INTEGRATION — Fotos GR + Importación de archivos
+   driveId LIQUIDACION : b!BLUoOk4ZV0i0lRVjqU98bE5GJvJPF8FNmuGlY7U7K15n8ZtW1erfT7ZfXSYd2S3V
+   itemId  LIQUIDACION : 01NGK4MLSUQXZKHB2VPJAJLAQYCJ2JI73U
+   driveId OPERACIONES : b!ziwIxqFwQU6T_nfXWDphBVW1-So1TZpIjAF5qh_W6Br63j71nTR_Ra-N4GTZTI95
+   itemId  CONFIRMACIONES : 015PCRZCTRX2VKJDDVJBGLEK34NRZR5JJZ
+   itemId  BASE DIARIA     : 015PCRZCRSV457FBWS65HZBXMMNICACOVO
+   ═══════════════════════════════════════════════════════════════════ */
+const SP = {
+  driveIdLiq:  'b!BLUoOk4ZV0i0lRVjqU98bE5GJvJPF8FNmuGlY7U7K15n8ZtW1erfT7ZfXSYd2S3V',
+  itemIdLiq:   '01NGK4MLSUQXZKHB2VPJAJLAQYCJ2JI73U',
+  driveIdOps:  'b!ziwIxqFwQU6T_nfXWDphBVW1-So1TZpIjAF5qh_W6Br63j71nTR_Ra-N4GTZTI95',
+  itemIdConf:  '015PCRZCTRX2VKJDDVJBGLEK34NRZR5JJZ',
+  itemIdBase:  '015PCRZCRSV457FBWS65HZBXMMNICACOVO',
+};
+
+/* ── Token Bearer (se guarda en localStorage, no en ST) ──────────── */
+function spGetToken(){ try{ return localStorage.getItem('mrp_sp_token')||''; }catch(e){ return ''; } }
+function spSetToken(t){ try{ localStorage.setItem('mrp_sp_token',t); }catch(e){} }
+
+/* ── Headers para Graph API ──────────────────────────────────────── */
+function spHeaders(token){
+  return { 'Authorization':'Bearer '+token, 'Content-Type':'application/json' };
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   UPLOAD DE FOTOS — Cola pendiente + subida individual
+   ───────────────────────────────────────────────────────────────── */
+
+/* Encola las fotos de una confirmación GR para subida a SharePoint */
+function spEncoleFotos(confEntry){
+  if(!confEntry || !(confEntry.fotos_confirmacion||[]).length) return;
+  if(!ST.pendingUploads) ST.pendingUploads = [];
+  const now = new Date();
+  const yr  = now.getFullYear().toString();
+  const mo  = String(now.getMonth()+1).padStart(2,'0');
+  const pedido = (confEntry.pedido||confEntry.gr||'SIN_PEDIDO').replace(/[^A-Za-z0-9\-_]/g,'_');
+  confEntry.fotos_confirmacion.forEach((b64, i)=>{
+    ST.pendingUploads.push({
+      id:       'UPL-'+Date.now()+'-'+i,
+      confId:   confEntry.id,
+      pedido,
+      yr, mo,
+      fotoIdx:  i,
+      b64,
+      status:   'pending',   // pending | ok | error
+      ts:       Date.now()
+    });
+  });
+  save();
+}
+
+/* Convierte base64 (data URL o raw b64) a ArrayBuffer */
+function b64ToArrayBuffer(b64){
+  const raw = b64.includes(',') ? b64.split(',')[1] : b64;
+  const bin = atob(raw);
+  const buf = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i);
+  return buf.buffer;
+}
+
+/* Crea carpeta si no existe: driveId / parentItemId / nombre */
+async function spEnsureFolder(token, driveId, parentItemId, nombre){
+  const url = `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${parentItemId}/children`;
+  // Intentar crear (si ya existe devuelve el existente con 409 o el nuevo con 201)
+  const r = await fetch(url, {
+    method:'POST',
+    headers: spHeaders(token),
+    body: JSON.stringify({ name: nombre, folder:{}, '@microsoft.graph.conflictBehavior':'rename' })
+  });
+  if(r.status===409 || r.status===200 || r.status===201){
+    // Buscar el itemId real
+    const lr = await fetch(url+'?$filter=name eq \''+encodeURIComponent(nombre)+'\'&$select=id,name', {
+      headers:{ 'Authorization':'Bearer '+token }
+    });
+    if(lr.ok){
+      const lj = await lr.json();
+      const found = (lj.value||[]).find(x=>x.name===nombre);
+      if(found) return found.id;
+    }
+    // fallback: devolver el id de la creación
+    const j = await r.json().catch(()=>({}));
+    return j.id||null;
+  }
+  return null;
+}
+
+/* Sube un archivo (ArrayBuffer) a driveId/parentItemId/nombre */
+async function spUploadFile(token, driveId, parentItemId, nombre, buffer, mimeType){
+  const url = `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${parentItemId}:/${nombre}:/content`;
+  const r = await fetch(url, {
+    method:'PUT',
+    headers:{ 'Authorization':'Bearer '+token, 'Content-Type': mimeType||'image/jpeg' },
+    body: buffer
+  });
+  return r.ok;
+}
+
+/* Sincroniza todas las fotos pendientes */
+async function spSyncFotos(){
+  const token = spGetToken();
+  if(!token){ toast('⚠ Ingresa tu token SharePoint en Configuración → SharePoint','warn'); return; }
+
+  const pending = (ST.pendingUploads||[]).filter(u=>u.status==='pending');
+  if(!pending.length){ toast('No hay fotos pendientes de sincronizar','info'); return; }
+
+  toast('🔄 Sincronizando '+pending.length+' foto(s) con SharePoint…','info');
+  let ok=0, err=0;
+
+  for(const upl of pending){
+    try{
+      // Crear/obtener carpeta año
+      const yrId = await spEnsureFolder(token, SP.driveIdLiq, SP.itemIdLiq, upl.yr);
+      if(!yrId){ upl.status='error'; upl.errorMsg='No se pudo crear carpeta año'; err++; continue; }
+      // Crear/obtener carpeta mes
+      const moId = await spEnsureFolder(token, SP.driveIdLiq, yrId, upl.mo);
+      if(!moId){ upl.status='error'; upl.errorMsg='No se pudo crear carpeta mes'; err++; continue; }
+      // Crear/obtener carpeta pedido
+      const pdId = await spEnsureFolder(token, SP.driveIdLiq, moId, upl.pedido);
+      if(!pdId){ upl.status='error'; upl.errorMsg='No se pudo crear carpeta pedido'; err++; continue; }
+      // Subir foto
+      const buf = b64ToArrayBuffer(upl.b64);
+      const ext = upl.b64.includes('image/png') ? 'png' : 'jpg';
+      const mime = upl.b64.includes('image/png') ? 'image/png' : 'image/jpeg';
+      const nombre = `foto_${String(upl.fotoIdx+1).padStart(2,'0')}.${ext}`;
+      const subido = await spUploadFile(token, SP.driveIdLiq, pdId, nombre, buf, mime);
+      if(subido){ upl.status='ok'; upl.uploadedAt=Date.now(); ok++; }
+      else { upl.status='error'; upl.errorMsg='PUT fallido'; err++; }
+    } catch(e){
+      upl.status='error'; upl.errorMsg=e.message||'Excepción'; err++;
+    }
+  }
+  save();
+  const msg = `✅ ${ok} foto(s) subida(s)` + (err ? ` · ❌ ${err} error(es)` : '') + ' — SharePoint LIQUIDACION';
+  toast(msg, ok&&!err?'ok':'warn');
+  spRenderPendientes();
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   IMPORTACIÓN DE DATOS — BASE DIARIA y GESTIÓN CONFIRMACIONES
+   Usa la Sheet "BASE DIARIA" (index 2 en getSheets) de workbook Confirmaciones
+   ───────────────────────────────────────────────────────────────── */
+
+async function spImportarBaseDiaria(){
+  const token = spGetToken();
+  if(!token){ toast('⚠ Ingresa tu token SharePoint en Configuración → SharePoint','warn'); return; }
+  toast('📥 Leyendo BASE DIARIA desde SharePoint…','info');
+  try{
+    // Leer primera hoja visible "BASE DIARIA" del archivo GESTIÓN CONFIRMACIONES
+    // GET /drives/{id}/items/{itemId}/workbook/worksheets/BASE DIARIA/usedRange
+    const url = `https://graph.microsoft.com/v1.0/drives/${SP.driveIdOps}/items/${SP.itemIdConf}/workbook/worksheets/BASE%20DIARIA/usedRange(valuesOnly=true)?$select=values`;
+    const r = await fetch(url, { headers:{ 'Authorization':'Bearer '+token } });
+    if(!r.ok){
+      const txt = await r.text();
+      toast('❌ Error al leer BASE DIARIA: '+r.status,'warn');
+      console.error('spImportarBaseDiaria error', r.status, txt);
+      return;
+    }
+    const j = await r.json();
+    const rows = j.values||[];
+    if(rows.length<2){ toast('BASE DIARIA vacía o sin datos','warn'); return; }
+    const hdrs = rows[0].map(h=>(h||'').toString().toUpperCase().trim());
+    const col = n=>hdrs.indexOf(n);
+    const iCliente=col('CLIENTE'), iPedido=col('PEDIDO'), iDir=col('DIRECCION'),
+          iProd=col('PRODUCTO'), iUnd=col('UND'), iEstado=col('ESTADO'),
+          iDetalle=col('DETALLE'), iDistrito=col('DISTRITO'), iGuia=col('GUIA'),
+          iTelef=col('TELEFONO'), iDni=col('DNI'), iFechaProg=col('FECHA PROGRAMACIÓN');
+    let importados=0, actualizados=0;
+    rows.slice(1).forEach(row=>{
+      if(!row[iPedido]) return;
+      const nro = row[iPedido].toString().trim();
+      if(!nro) return;
+      const existente = ST.pedidos.find(p=>p.numero===nro);
+      const data = {
+        numero:    nro,
+        cliente:   row[iCliente]||'',
+        direccion: row[iDir]||'',
+        productos: row[iProd]||'',
+        und:       row[iUnd]||'',
+        estado:    row[iEstado]||'PROGRAMADO',
+        detalle:   row[iDetalle]||'',
+        distrito:  row[iDistrito]||'',
+        guia:      row[iGuia]||'',
+        telefono:  row[iTelef]||'',
+        dni:       row[iDni]||'',
+        fecha_prog:row[iFechaProg]||'',
+        _spImport: true,
+        _spImportTs: Date.now()
+      };
+      if(existente){
+        // Actualizar campos operativos sin pisar estado manual
+        Object.assign(existente, data);
+        actualizados++;
+      } else {
+        ST.pedidos.push(data);
+        importados++;
+      }
+    });
+    save();
+    toast(`✅ BASE DIARIA importada — ${importados} nuevos · ${actualizados} actualizados`,'ok');
+    try{ renderPedidos(); }catch(e){}
+    try{ renderMotorRuteo(); }catch(e){}
+  } catch(e){
+    toast('❌ Error importando BASE DIARIA: '+e.message,'warn');
+    console.error(e);
+  }
+}
+
+async function spImportarConfirmaciones(){
+  const token = spGetToken();
+  if(!token){ toast('⚠ Ingresa tu token SharePoint en Configuración → SharePoint','warn'); return; }
+  toast('📥 Leyendo GESTIÓN CONFIRMACIONES desde SharePoint…','info');
+  try{
+    const url = `https://graph.microsoft.com/v1.0/drives/${SP.driveIdOps}/items/${SP.itemIdConf}/workbook/worksheets/GESTI%C3%93N%20RUTA/usedRange(valuesOnly=true)?$select=values`;
+    const r = await fetch(url, { headers:{ 'Authorization':'Bearer '+token } });
+    if(!r.ok){
+      // intentar con el sheet index
+      const url2 = `https://graph.microsoft.com/v1.0/drives/${SP.driveIdOps}/items/${SP.itemIdConf}/workbook/worksheets('GESTION RUTA')/usedRange(valuesOnly=true)?$select=values`;
+      const r2 = await fetch(url2, { headers:{ 'Authorization':'Bearer '+token } });
+      if(!r2.ok){ toast('❌ Error al leer GESTIÓN RUTA: '+r.status,'warn'); return; }
+      return _procesarConfRuta(await r2.json());
+    }
+    return _procesarConfRuta(await r.json());
+  } catch(e){
+    toast('❌ Error importando Confirmaciones: '+e.message,'warn');
+    console.error(e);
+  }
+}
+
+function _procesarConfRuta(j){
+  const rows = j.values||[];
+  if(rows.length<2){ toast('GESTIÓN RUTA vacía o sin datos','warn'); return; }
+  const hdrs = rows[0].map(h=>(h||'').toString().toUpperCase().trim());
+  const col = n=>hdrs.indexOf(n);
+  const iEstado=col('ESTADO'), iPedido=col('PEDIDO'), iDetalle=col('DETALLE'), iSubdet=col('SUB DETALLE');
+  let upd=0;
+  rows.slice(1).forEach(row=>{
+    const nro = (row[iPedido]||'').toString().trim();
+    if(!nro) return;
+    const estado = (row[iEstado]||'').toString().trim();
+    const ped = ST.pedidos.find(p=>p.numero===nro);
+    if(ped && estado){
+      ped.conf_estado  = estado;
+      ped.conf_detalle = row[iDetalle]||'';
+      ped.conf_subdet  = row[iSubdet]||'';
+      upd++;
+    }
+  });
+  save();
+  toast(`✅ Confirmaciones sincronizadas — ${upd} pedido(s) actualizados`,'ok');
+  try{ renderPedidos(); }catch(e){}
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   RENDER PANEL SHAREPOINT (se inyecta dentro del modal Config)
+   ───────────────────────────────────────────────────────────────── */
+function spRenderPendientes(){
+  const el = document.getElementById('sp-pending-count');
+  if(!el) return;
+  const n = (ST.pendingUploads||[]).filter(u=>u.status==='pending').length;
+  el.textContent = n ? '⏳ '+n+' foto(s) pendientes' : '✅ Sin fotos pendientes';
+  el.style.color = n ? '#F7941D' : '#16A34A';
+}
+
+function openSpPanel(){
+  spRenderPendientes();
+  document.getElementById('sp_panel').style.display='block';
+}
+function closeSpPanel(){ document.getElementById('sp_panel').style.display='none'; }
+
+function spSaveToken(){
+  const t = (document.getElementById('sp_token_inp')||{}).value||'';
+  spSetToken(t.trim());
+  toast('🔑 Token SharePoint guardado en este navegador','ok');
+}
 </script>
 <!-- CONFIG MODAL -->
-<div id="cfg_modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:8000;align-items:center;justify-content:center;">
-  <div style="background:#1e2a3a;border-radius:12px;padding:32px;width:480px;max-width:95vw;">
+<div id="cfg_modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:8000;align-items:center;justify-content:center;overflow-y:auto;">
+  <div style="background:#1e2a3a;border-radius:12px;padding:32px;width:540px;max-width:95vw;margin:20px auto;">
     <h3 style="color:#e2e8f0;margin:0 0 20px;">⚙ Configuración (Admin)</h3>
+
+    <!-- Google Apps Script -->
     <label style="color:#a0aec0;font-size:13px;display:block;margin-bottom:6px;">URL Google Apps Script (sincronización)</label>
-    <input id="gs_url_inp" type="text" placeholder="https://script.google.com/macros/s/..." style="width:100%;padding:10px;border-radius:8px;border:1px solid #2d3748;background:#2d3748;color:#e2e8f0;font-size:13px;box-sizing:border-box;margin-bottom:16px;">
+    <input id="gs_url_inp" type="text" placeholder="https://script.google.com/macros/s/..." style="width:100%;padding:10px;border-radius:8px;border:1px solid #2d3748;background:#2d3748;color:#e2e8f0;font-size:13px;box-sizing:border-box;margin-bottom:20px;">
+
+    <!-- SharePoint Integration -->
+    <div style="border-top:1px solid #2d3748;padding-top:20px;margin-bottom:20px;">
+      <h4 style="color:#29ABE2;margin:0 0 14px;font-size:14px;display:flex;align-items:center;gap:8px;cursor:pointer;" onclick="openSpPanel()">
+        ☁ SharePoint / Microsoft 365 <span style="font-size:11px;color:#718096;">(clic para expandir)</span>
+      </h4>
+      <div id="sp_panel" style="display:none;">
+        <label style="color:#a0aec0;font-size:12px;display:block;margin-bottom:4px;">
+          Token Bearer (Microsoft Graph API)
+          <span style="color:#718096;"> — Obtén el tuyo en <a href="https://developer.microsoft.com/en-us/graph/graph-explorer" target="_blank" style="color:#29ABE2;">Graph Explorer</a> → Sign In → copy token</span>
+        </label>
+        <div style="display:flex;gap:8px;margin-bottom:12px;">
+          <input id="sp_token_inp" type="password" placeholder="eyJ0eXAiOiJKV1..." style="flex:1;padding:9px;border-radius:8px;border:1px solid #2d3748;background:#2d3748;color:#e2e8f0;font-size:12px;">
+          <button onclick="spSaveToken()" style="padding:9px 16px;background:#29ABE2;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;white-space:nowrap;">Guardar Token</button>
+        </div>
+
+        <!-- Estado fotos pendientes -->
+        <div style="background:#0d1b2a;border-radius:8px;padding:12px;margin-bottom:12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <span style="color:#e2e8f0;font-size:12px;font-weight:600;">📷 Fotos GR — Cola SharePoint</span>
+            <span id="sp-pending-count" style="font-size:12px;color:#a0aec0;">—</span>
+          </div>
+          <p style="color:#718096;font-size:11px;margin-bottom:10px;">
+            Las fotos capturadas en Vigilancia se encolan automáticamente.<br>
+            Destino: <code style="color:#29ABE2;">COMERCIAL / LIQUIDACION / [Año] / [Mes] / [N° Pedido] /</code>
+          </p>
+          <button onclick="spSyncFotos()" style="width:100%;padding:9px;background:#1a3a5c;border:1px solid #29ABE2;color:#29ABE2;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;">
+            🔄 Sincronizar fotos pendientes → SharePoint
+          </button>
+        </div>
+
+        <!-- Importar datos -->
+        <div style="background:#0d1b2a;border-radius:8px;padding:12px;">
+          <span style="color:#e2e8f0;font-size:12px;font-weight:600;">📥 Importar datos desde SharePoint</span>
+          <p style="color:#718096;font-size:11px;margin:6px 0 10px;">Carga BASE DIARIA y estados de confirmación directamente desde los archivos de operaciones.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button onclick="spImportarBaseDiaria()" style="flex:1;padding:9px;background:#1a3a2a;border:1px solid #16A34A;color:#16A34A;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;min-width:140px;">
+              📋 BASE DIARIA
+            </button>
+            <button onclick="spImportarConfirmaciones()" style="flex:1;padding:9px;background:#1a2a3a;border:1px solid #F7941D;color:#F7941D;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;min-width:140px;">
+              ✅ CONFIRMACIONES
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div style="display:flex;gap:10px;justify-content:flex-end;">
       <button onclick="document.getElementById('cfg_modal').style.display='none'" style="padding:10px 20px;background:#4a5568;color:white;border:none;border-radius:8px;cursor:pointer;">Cancelar</button>
       <button onclick="saveConfig()" style="padding:10px 20px;background:#3182ce;color:white;border:none;border-radius:8px;cursor:pointer;">Guardar</button>
