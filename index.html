@@ -4692,15 +4692,8 @@ async function procesarTodo(){
     }
   }
 
-  // PASO 0B: Auto-fetch de los 4 archivos de OneDrive
-  // Si hay token (Cristhian): descarga y sube al servidor GAS para el equipo
-  // Si no hay token: usa lo que ya descargó el servidor GAS (subido por Cristhian)
-  const _spResult = await spAutoFetchDriveFiles(el);
-  if(_spResult && _spResult.tokenExpired){
-    // Token vencido — detener aquí para que Cristhian renueve
-    setSyncStatus('error','Token OneDrive vencido');
-    return;
-  }
+  // PASO 0B: Los datos se cargan desde Google Drive vía "☁ Actualizar Drives"
+  // Esta función solo usa lo que ya está en ST (cargado previamente)
 
   // Primero intentar procesar textareas (modo pegar)
   let procesadosPaste=0;
@@ -9356,7 +9349,7 @@ async function spAutoFetchDriveFiles(statusEl){
         ST.cargados.base = rows.length-1;
         resultados.push(`BASE(${importados}+${actualizados})`);
       }
-    } else { resultados.push('BASE(err '+r.status+')'); if(r.status===401||r.status===403){ if(statusEl) statusEl.innerHTML='<span style="color:#EF4444;font-weight:600">❌ Token OneDrive vencido o inválido. Cristhian debe renovarlo en Configuración → OneDrive.</span>'; return { ok:false, tokenExpired:true }; } }
+    } else { resultados.push('BASE(err '+r.status+')'); }
   } catch(e){ resultados.push('BASE(exc)'); console.warn('spAutoFetch BASE',e); }
 
   // ── 2. GESTIÓN CONFIRMACIONES — hoja GESTIÓN RUTA ──────────────
@@ -9456,52 +9449,84 @@ function spSaveToken(){
    token; el resto del equipo obtiene los datos via GAS server.
    ───────────────────────────────────────────────────────────────── */
 async function actualizarDrives(){
-  const token = spGetToken();
-  if(!token){
-    mostrarModal('Sin token OneDrive',
-      '<p style="color:#e2e8f0;font-size:14px;line-height:1.6">'+
-      'No hay token Bearer configurado en este navegador.<br><br>'+
-      '<strong style="color:#F7941D">Solo Cristhian necesita configurar el token</strong> (una vez por navegador).<br><br>'+
-      'Ve a <strong>Configuración → OneDrive</strong> para ingresarlo.<br><br>'+
-      'Si no eres Cristhian, presiona <strong>PROCESAR TODO</strong> y los datos se descargarán del servidor del equipo.</p>');
-    return;
-  }
   const el = document.getElementById('msg-global');
-  if(el) el.innerHTML='<span style="color:#29ABE2;font-weight:600">☁ Descargando 4 archivos de OneDrive...</span>';
-
   const btn = document.getElementById('btn-actualizar-drives');
-  if(btn){ btn.disabled=true; btn.textContent='⏳ Descargando...'; }
+  if(el) el.innerHTML='<span style="color:#29ABE2;font-weight:600">☁ Leyendo archivos desde Google Drive compartido...</span>';
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Leyendo...'; }
 
   try {
-    const result = await spAutoFetchDriveFiles(el);
-    if(result && result.ok){
-      if(el) el.innerHTML='<span style="color:#16A34A;font-weight:600">✅ Drives actualizados — ya puedes presionar PROCESAR TODO</span>';
-    } else if(result && result.tokenExpired){
-      if(el) el.innerHTML='<span style="color:#EF4444;font-weight:600">⚠️ Token vencido — ingresa uno nuevo en Configuración → OneDrive</span>';
+    const gasUrl = gasGetUrl();
+    if(!gasUrl){ throw new Error('URL del servidor no configurada'); }
+
+    const resp = await fetch(gasUrl + '?action=fetch_drives');
+    if(!resp.ok) throw new Error('HTTP ' + resp.status);
+    const json = await resp.json();
+
+    if(!json.ok) throw new Error(json.error || 'Error del servidor');
+
+    const archivos = json.archivos || {};
+    const errores  = json.errores  || {};
+    let cargados = 0;
+
+    // BASE DIARIA
+    if(archivos.base && archivos.base.data){
+      ST.base_diaria = archivos.base.data;
+      await gasSaveModule('base', archivos.base.data);
+      cargados++;
+      actualizarCardModulo('base', archivos.base.filas);
+    }
+    // CONFIRMACIONES
+    if(archivos.conf && archivos.conf.data){
+      ST.confirmaciones = archivos.conf.data;
+      await gasSaveModule('conf', archivos.conf.data);
+      cargados++;
+      actualizarCardModulo('conf', archivos.conf.filas);
+    }
+    // TRÁNSITO
+    if(archivos.trans && archivos.trans.data){
+      ST.transito = archivos.trans.data;
+      await gasSaveModule('trans', archivos.trans.data);
+      cargados++;
+      actualizarCardModulo('trans', archivos.trans.filas);
+    }
+    // MY BEES
+    if(archivos.myb && archivos.myb.data){
+      ST.mybees = archivos.myb.data;
+      await gasSaveModule('myb', archivos.myb.data);
+      cargados++;
+      actualizarCardModulo('myb', archivos.myb.filas);
+    }
+
+    const errMsg = Object.keys(errores).length
+      ? ' | Sin encontrar: ' + Object.keys(errores).join(', ')
+      : '';
+
+    if(cargados > 0){
+      if(el) el.innerHTML='<span style="color:#16A34A;font-weight:600">✅ '+cargados+'/4 archivos cargados desde Google Drive'+errMsg+'</span>';
+    } else {
+      if(el) el.innerHTML='<span style="color:#F7941D;font-weight:600">⚠️ No se encontraron archivos en la carpeta compartida'+errMsg+'.<br>Asegúrate de que los archivos estén en la carpeta <strong>Merpes - Reportes Activos</strong>.</span>';
     }
   } catch(e){
-    if(el) el.innerHTML='<span style="color:#EF4444;font-weight:600">❌ Error al conectar con OneDrive: '+e.message+'</span>';
+    if(el) el.innerHTML='<span style="color:#EF4444;font-weight:600">❌ Error: '+e.message+'</span>';
   } finally {
     if(btn){ btn.disabled=false; btn.textContent='☁ Actualizar Drives'; }
   }
 }
 
-/* Mostrar botón Actualizar Drives solo si hay token en este navegador */
+function actualizarCardModulo(modulo, filas){
+  // Actualizar el badge "Sin datos" / "N filas" en la tarjeta correspondiente
+  const badges = { base:'card-base', conf:'card-conf', trans:'card-trans', myb:'card-myb' };
+  const id = badges[modulo];
+  if(!id) return;
+  const el = document.querySelector('[data-card="'+modulo+'"] .card-badge, #'+id+' .card-badge');
+  if(el) el.textContent = filas + ' filas';
+}
+
+/* Mostrar botón Actualizar Drives siempre (usa Google Drive compartido, no token) */
 function initDrivesButton(){
   const btn = document.getElementById('btn-actualizar-drives');
   if(!btn) return;
-  const token = spGetToken();
-  btn.style.display = token ? 'inline-flex' : 'none';
-  // Mostrar/ocultar también cuando se guarda un nuevo token
-  const origSave = window.spSaveToken;
-  if(origSave) {
-    window._spSaveTokenOrig = origSave;
-    window.spSaveToken = function(){
-      _spSaveTokenOrig();
-      btn.style.display = spGetToken() ? 'inline-flex' : 'none';
-      showConfig();
-    };
-  }
+  btn.style.display = 'inline-flex';
 }
 document.addEventListener('DOMContentLoaded', initDrivesButton);
 
