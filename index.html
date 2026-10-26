@@ -4678,6 +4678,11 @@ async function procesarTodo(){
     }
   }
 
+  // PASO 0B: Auto-fetch de los 4 archivos de drives compartidos
+  // (BASE DIARIA, GESTIÓN CONFIRMACIONES, TRÁNSITO, MY BEES)
+  // Solo si hay token; si no hay token, continúa con lo que hay cargado manualmente.
+  await spAutoFetchDriveFiles(el);
+
   // Primero intentar procesar textareas (modo pegar)
   let procesadosPaste=0;
   tipos.forEach(t=>{
@@ -8940,15 +8945,21 @@ function expAcreditacionCSV(){
    driveId LIQUIDACION : b!BLUoOk4ZV0i0lRVjqU98bE5GJvJPF8FNmuGlY7U7K15n8ZtW1erfT7ZfXSYd2S3V
    itemId  LIQUIDACION : 01NGK4MLSUQXZKHB2VPJAJLAQYCJ2JI73U
    driveId OPERACIONES : b!ziwIxqFwQU6T_nfXWDphBVW1-So1TZpIjAF5qh_W6Br63j71nTR_Ra-N4GTZTI95
-   itemId  CONFIRMACIONES : 015PCRZCTRX2VKJDDVJBGLEK34NRZR5JJZ
+   itemId  CONFIRMACIONES  : 015PCRZCTRX2VKJDDVJBGLEK34NRZR5JJZ
    itemId  BASE DIARIA     : 015PCRZCRSV457FBWS65HZBXMMNICACOVO
+   itemId  TRÁNSITO 2026   : 015PCRZCTYEYLQ4WVUWZD2ABDFNGVZXXF3  (mismo drive OPERACIONES)
+   driveId MY BEES (Omar)  : b!54EZJlGHtEGz9y62toYcppUi0ALc6uVAg1Nuq9Cq6WGndMSXQnESS7S7sM3ks1Qd
+   itemId  MY BEES         : 01F4SROYOM2PWFH5ARFVB2V6VSGNUNWDLU
    ═══════════════════════════════════════════════════════════════════ */
 const SP = {
-  driveIdLiq:  'b!BLUoOk4ZV0i0lRVjqU98bE5GJvJPF8FNmuGlY7U7K15n8ZtW1erfT7ZfXSYd2S3V',
-  itemIdLiq:   '01NGK4MLSUQXZKHB2VPJAJLAQYCJ2JI73U',
-  driveIdOps:  'b!ziwIxqFwQU6T_nfXWDphBVW1-So1TZpIjAF5qh_W6Br63j71nTR_Ra-N4GTZTI95',
-  itemIdConf:  '015PCRZCTRX2VKJDDVJBGLEK34NRZR5JJZ',
-  itemIdBase:  '015PCRZCRSV457FBWS65HZBXMMNICACOVO',
+  driveIdLiq:   'b!BLUoOk4ZV0i0lRVjqU98bE5GJvJPF8FNmuGlY7U7K15n8ZtW1erfT7ZfXSYd2S3V',
+  itemIdLiq:    '01NGK4MLSUQXZKHB2VPJAJLAQYCJ2JI73U',
+  driveIdOps:   'b!ziwIxqFwQU6T_nfXWDphBVW1-So1TZpIjAF5qh_W6Br63j71nTR_Ra-N4GTZTI95',
+  itemIdConf:   '015PCRZCTRX2VKJDDVJBGLEK34NRZR5JJZ',
+  itemIdBase:   '015PCRZCRSV457FBWS65HZBXMMNICACOVO',
+  itemIdTrans:  '015PCRZCTYEYLQ4WVUWZD2ABDFNGVZXXF3',  // REPORTE TRÁNSITO LOGÍSTICA - 2026 (mismo driveIdOps)
+  driveIdMyb:   'b!54EZJlGHtEGz9y62toYcppUi0ALc6uVAg1Nuq9Cq6WGndMSXQnESS7S7sM3ks1Qd',
+  itemIdMyb:    '01F4SROYOM2PWFH5ARFVB2V6VSGNUNWDLU',   // EXCEL MIGUEL, DATA MY BEES 1 (drive coordinador)
 };
 
 /* ── Token Bearer (se guarda en localStorage, no en ST) ──────────── */
@@ -9186,6 +9197,216 @@ function _procesarConfRuta(j){
   save();
   toast(`✅ Confirmaciones sincronizadas — ${upd} pedido(s) actualizados`,'ok');
   try{ renderPedidos(); }catch(e){}
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   IMPORTACIÓN TRÁNSITO — lee hoja "TRANSITO" del archivo TRÁNSITO 2026
+   ───────────────────────────────────────────────────────────────── */
+async function spFetchTransito(token){
+  const sheetNames = ['TRANSITO','TRÁNSITO','TRANSITO 2026','Sheet1'];
+  let rows = null;
+  for(const sn of sheetNames){
+    const enc = encodeURIComponent(sn);
+    const url = `https://graph.microsoft.com/v1.0/drives/${SP.driveIdOps}/items/${SP.itemIdTrans}/workbook/worksheets/${enc}/usedRange(valuesOnly=true)?$select=values`;
+    const r = await fetch(url, { headers:{ 'Authorization':'Bearer '+token } });
+    if(r.ok){ const j = await r.json(); rows = j.values||[]; if(rows.length>1) break; }
+  }
+  if(!rows || rows.length<2){ return { ok:false, msg:'TRÁNSITO vacío o sin hoja reconocida' }; }
+  const hdrs = rows[0].map(h=>(h||'').toString().toUpperCase().trim());
+  const col = n => hdrs.indexOf(n);
+  const iGuia=col('GUIA'), iEstado=col('ESTADO'), iPedido=col('PEDIDO'),
+        iCliente=col('CLIENTE'), iDetalle=col('DETALLE'), iSubdet=col('SUB DETALLE'),
+        iFecha=col('FECHA DESPACHO'), iPlaca=col('PLACA');
+  const trans = [];
+  rows.slice(1).forEach(row=>{
+    const guia = (row[iGuia]||'').toString().trim();
+    const ped  = (row[iPedido]||'').toString().trim();
+    if(!guia && !ped) return;
+    trans.push({
+      guia:     guia,
+      pedido:   ped,
+      estado:   (row[iEstado]||'').toString().trim(),
+      cliente:  (row[iCliente]||'').toString().trim(),
+      detalle:  (row[iDetalle]||'').toString().trim(),
+      subdet:   (row[iSubdet]||'').toString().trim(),
+      fecha:    (row[iFecha]||'').toString().trim(),
+      placa:    (row[iPlaca]||'').toString().trim()
+    });
+  });
+  return { ok:true, rows:trans };
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   IMPORTACIÓN MY BEES — lee hoja principal del archivo MY BEES
+   ───────────────────────────────────────────────────────────────── */
+async function spFetchMyBees(token){
+  const sheetNames = ['MY BEES','MYBEES','DATA','Hoja1','Sheet1'];
+  let rows = null;
+  for(const sn of sheetNames){
+    const enc = encodeURIComponent(sn);
+    const url = `https://graph.microsoft.com/v1.0/drives/${SP.driveIdMyb}/items/${SP.itemIdMyb}/workbook/worksheets/${enc}/usedRange(valuesOnly=true)?$select=values`;
+    const r = await fetch(url, { headers:{ 'Authorization':'Bearer '+token } });
+    if(r.ok){ const j = await r.json(); rows = j.values||[]; if(rows.length>1) break; }
+  }
+  // Si ningún nombre funcionó, intentar con el primer sheet (índice 0)
+  if(!rows || rows.length<2){
+    const url0 = `https://graph.microsoft.com/v1.0/drives/${SP.driveIdMyb}/items/${SP.itemIdMyb}/workbook/worksheets`;
+    const rSheets = await fetch(url0, { headers:{ 'Authorization':'Bearer '+token } });
+    if(rSheets.ok){
+      const jSheets = await rSheets.json();
+      const firstSheet = (jSheets.value||[])[0];
+      if(firstSheet){
+        const enc = encodeURIComponent(firstSheet.name);
+        const url = `https://graph.microsoft.com/v1.0/drives/${SP.driveIdMyb}/items/${SP.itemIdMyb}/workbook/worksheets/${enc}/usedRange(valuesOnly=true)?$select=values`;
+        const r = await fetch(url, { headers:{ 'Authorization':'Bearer '+token } });
+        if(r.ok){ const j = await r.json(); rows = j.values||[]; }
+      }
+    }
+  }
+  if(!rows || rows.length<2){ return { ok:false, msg:'MY BEES vacío o sin acceso' }; }
+  const hdrs = rows[0].map(h=>(h||'').toString().toUpperCase().trim());
+  const col = n => hdrs.indexOf(n);
+  const iDni=col('DNI'), iCliente=col('CLIENTE'), iPedido=col('PEDIDO'),
+        iDistrito=col('DISTRITO'), iDir=col('DIRECCIÓN'), iZona=col('ZONA'),
+        iTelef=col('TELEFONO'), iCodBees=col('CODIGO BEES'), iCodSig=col('CODIGO SIG');
+  const myb = [];
+  rows.slice(1).forEach(row=>{
+    const dni = (row[iDni]||'').toString().trim();
+    const ped = (row[iPedido]||'').toString().trim();
+    if(!dni && !ped) return;
+    myb.push({
+      dni:        dni,
+      pedido:     ped,
+      cliente:    (row[iCliente]||'').toString().trim(),
+      distrito:   (row[iDistrito]||'').toString().trim(),
+      direccion:  (row[iDir]||'').toString().trim(),
+      zona:       (row[iZona]||'').toString().trim(),
+      telefono:   (row[iTelef]||'').toString().trim(),
+      cod_bees:   (row[iCodBees]||'').toString().trim(),
+      cod_sig:    (row[iCodSig]||'').toString().trim()
+    });
+  });
+  return { ok:true, rows:myb };
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   AUTO-FETCH de los 4 archivos de drives compartidos
+   Llamado automáticamente desde procesarTodo() antes de procesar.
+   Requiere token SharePoint. Si no hay token, omite silenciosamente
+   para no bloquear el flujo manual (drag-drop sigue funcionando).
+   ───────────────────────────────────────────────────────────────── */
+async function spAutoFetchDriveFiles(statusEl){
+  const token = spGetToken();
+  if(!token){
+    // Sin token: advertir y continuar (los archivos de drive no se obtienen)
+    if(statusEl) statusEl.innerHTML='<span style="color:#F7941D;font-weight:600">⚠️ Sin token SharePoint — usando solo archivos cargados manualmente. Ingresa el token en Configuración.</span>';
+    return { ok:false, skipped:true };
+  }
+  if(statusEl) statusEl.innerHTML='<span style="color:#3B82F6;font-weight:600">☁️ Obteniendo archivos desde drives compartidos...</span>';
+
+  const resultados = [];
+
+  // ── 1. BASE DIARIA ──────────────────────────────────────────────
+  try{
+    const url = `https://graph.microsoft.com/v1.0/drives/${SP.driveIdOps}/items/${SP.itemIdBase}/workbook/worksheets/BASE%20DIARIA/usedRange(valuesOnly=true)?$select=values`;
+    const r = await fetch(url, { headers:{ 'Authorization':'Bearer '+token } });
+    if(r.ok){
+      const j = await r.json();
+      const rows = j.values||[];
+      if(rows.length>1){
+        const hdrs = rows[0].map(h=>(h||'').toString().toUpperCase().trim());
+        const col = n=>hdrs.indexOf(n);
+        const iCliente=col('CLIENTE'), iPedido=col('PEDIDO'), iDir=col('DIRECCION'),
+              iProd=col('PRODUCTO'), iUnd=col('UND'), iEstado=col('ESTADO'),
+              iDetalle=col('DETALLE'), iDistrito=col('DISTRITO'), iGuia=col('GUIA'),
+              iTelef=col('TELEFONO'), iDni=col('DNI'), iFechaProg=col('FECHA PROGRAMACIÓN');
+        let importados=0, actualizados=0;
+        rows.slice(1).forEach(row=>{
+          if(!row[iPedido]) return;
+          const nro = row[iPedido].toString().trim(); if(!nro) return;
+          const data = {
+            numero:row[iPedido]?.toString().trim()||'', cliente:row[iCliente]||'',
+            direccion:row[iDir]||'', productos:row[iProd]||'', und:row[iUnd]||'',
+            estado:row[iEstado]||'PROGRAMADO', detalle:row[iDetalle]||'',
+            distrito:row[iDistrito]||'', guia:row[iGuia]||'', telefono:row[iTelef]||'',
+            dni:row[iDni]||'', fecha_prog:row[iFechaProg]||'',
+            _spImport:true, _spImportTs:Date.now()
+          };
+          const ex = ST.pedidos.find(p=>p.numero===nro);
+          if(ex){ Object.assign(ex,data); actualizados++; } else { ST.pedidos.push(data); importados++; }
+        });
+        ST.cargados.base = rows.length-1;
+        resultados.push(`BASE(${importados}+${actualizados})`);
+      }
+    } else { resultados.push('BASE(err '+r.status+')'); }
+  } catch(e){ resultados.push('BASE(exc)'); console.warn('spAutoFetch BASE',e); }
+
+  // ── 2. GESTIÓN CONFIRMACIONES — hoja GESTIÓN RUTA ──────────────
+  try{
+    let confRows = null;
+    for(const sn of ['GESTIÓN RUTA','GESTION RUTA','GESTIÓN RUTA']){
+      const url = `https://graph.microsoft.com/v1.0/drives/${SP.driveIdOps}/items/${SP.itemIdConf}/workbook/worksheets/${encodeURIComponent(sn)}/usedRange(valuesOnly=true)?$select=values`;
+      const r = await fetch(url, { headers:{ 'Authorization':'Bearer '+token } });
+      if(r.ok){ const j = await r.json(); confRows = j.values||[]; if(confRows.length>1) break; }
+    }
+    if(confRows && confRows.length>1){
+      const hdrs = confRows[0].map(h=>(h||'').toString().toUpperCase().trim());
+      const col = n=>hdrs.indexOf(n);
+      const iEstado=col('ESTADO'), iPedido=col('PEDIDO'), iDetalle=col('DETALLE'), iSubdet=col('SUB DETALLE');
+      let upd=0;
+      confRows.slice(1).forEach(row=>{
+        const nro=(row[iPedido]||'').toString().trim(); if(!nro) return;
+        const estado=(row[iEstado]||'').toString().trim();
+        const ped=ST.pedidos.find(p=>p.numero===nro);
+        if(ped&&estado){ ped.conf_estado=estado; ped.conf_detalle=row[iDetalle]||''; ped.conf_subdet=row[iSubdet]||''; upd++; }
+      });
+      ST.cargados.conf = confRows.length-1;
+      resultados.push(`CONF(${upd} upd)`);
+    } else { resultados.push('CONF(vacío)'); }
+  } catch(e){ resultados.push('CONF(exc)'); console.warn('spAutoFetch CONF',e); }
+
+  // ── 3. TRÁNSITO ─────────────────────────────────────────────────
+  try{
+    const res = await spFetchTransito(token);
+    if(res.ok){
+      ST.transito = res.rows;
+      ST.cargados.trans = res.rows.length;
+      // Cruzar estado de tránsito con pedidos
+      res.rows.forEach(t=>{
+        if(!t.pedido) return;
+        const ped = ST.pedidos.find(p=>p.numero===t.pedido);
+        if(ped){ ped.trans_estado=t.estado; ped.trans_guia=t.guia; ped.trans_placa=t.placa; }
+      });
+      resultados.push(`TRANS(${res.rows.length})`);
+    } else { resultados.push('TRANS('+res.msg+')'); }
+  } catch(e){ resultados.push('TRANS(exc)'); console.warn('spAutoFetch TRANS',e); }
+
+  // ── 4. MY BEES ──────────────────────────────────────────────────
+  try{
+    const res = await spFetchMyBees(token);
+    if(res.ok){
+      ST.mybees = res.rows;
+      ST.cargados.myb = res.rows.length;
+      // Enriquecer pedidos con datos MY BEES (por DNI o pedido)
+      res.rows.forEach(m=>{
+        const ped = ST.pedidos.find(p=>
+          (m.pedido && p.numero===m.pedido) ||
+          (m.dni    && p.dni   ===m.dni)
+        );
+        if(ped){
+          if(m.zona)      ped.zona_bees = m.zona;
+          if(m.cod_bees)  ped.cod_bees  = m.cod_bees;
+          if(m.cod_sig)   ped.cod_sig   = m.cod_sig;
+        }
+      });
+      resultados.push(`MYBEES(${res.rows.length})`);
+    } else { resultados.push('MYBEES('+res.msg+')'); }
+  } catch(e){ resultados.push('MYBEES(exc)'); console.warn('spAutoFetch MYBEES',e); }
+
+  save();
+  const resumen = resultados.join(' · ');
+  if(statusEl) statusEl.innerHTML=`<span style="color:#16A34A;font-weight:600">☁️ Drives sincronizados: ${resumen}</span>`;
+  return { ok:true, resumen };
 }
 
 /* ─────────────────────────────────────────────────────────────────
