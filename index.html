@@ -9314,7 +9314,7 @@ async function spFetchMyBees(token){
    Requiere token SharePoint. Si no hay token, omite silenciosamente
    para no bloquear el flujo manual (drag-drop sigue funcionando).
    ───────────────────────────────────────────────────────────────── */
-async async function spAutoFetchDriveFiles(statusEl){
+async function spAutoFetchDriveFiles(statusEl){
   const token = spGetToken();
   if(!token){
     if(statusEl) statusEl.innerHTML='<span style="color:#F7941D;font-weight:600">⚠️ Sin token OneDrive — usando datos del servidor del equipo.</span>';
