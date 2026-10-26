@@ -2655,7 +2655,22 @@ if(typeof window !== "undefined") window.qrcode = qrcode;
       <option value="CHOFER">🚛 Chofer</option>
     </select>
     <div id="nombre_inp_wrap" style="display:none;margin-bottom:12px;">
-      <input id="nombre_inp" type="text" placeholder="Tu nombre completo" style="width:100%;padding:12px;border-radius:8px;border:1px solid #2d3748;background:#2d3748;color:#e2e8f0;font-size:14px;box-sizing:border-box;">
+      <!-- Selector para EDITOR/ADMIN: lista de usuarios de logística -->
+      <div id="nombre_sel_wrap" style="display:none;">
+        <select id="nombre_sel" style="width:100%;padding:12px;border-radius:8px;border:1px solid #2d3748;background:#2d3748;color:#e2e8f0;font-size:14px;box-sizing:border-box;">
+          <option value="">— Selecciona tu nombre —</option>
+          <option value="Dante Clavijo">Dante Clavijo</option>
+          <option value="Miguel Calle">Miguel Calle</option>
+          <option value="Omar Benavides">Omar Benavides</option>
+          <option value="Herlinda Nizama">Herlinda Nizama</option>
+          <option value="Pool Ramirez">Pool Ramirez</option>
+          <option value="Cristhian Revilla">Cristhian Revilla</option>
+        </select>
+      </div>
+      <!-- Input libre para VIGILANTE/CHOFER -->
+      <div id="nombre_txt_wrap" style="display:none;">
+        <input id="nombre_inp" type="text" placeholder="Tu nombre completo" style="width:100%;padding:12px;border-radius:8px;border:1px solid #2d3748;background:#2d3748;color:#e2e8f0;font-size:14px;box-sizing:border-box;">
+      </div>
     </div>
     <input id="pw_inp" type="password" placeholder="Contraseña (vacía para Lector)" style="width:100%;padding:12px;border-radius:8px;border:1px solid #2d3748;background:#2d3748;color:#e2e8f0;font-size:14px;margin-bottom:16px;box-sizing:border-box;">
     <button onclick="tryLogin()" style="width:100%;padding:14px;background:#3182ce;color:white;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;">Ingresar →</button>
@@ -4059,9 +4074,24 @@ let SESION_VIG = { usuario: '', nombre: '', rol: '' };
 let ROL = null;
 let GS_URL = 'https://script.google.com/macros/s/AKfycbzJ-jFX0_iubeOgdYDIj9KjQ9DCD6fIA1WkNoTVeOllEmqmqwVW5lfQkpkBmihcWmsg8A/exec';
 
+// Usuarios de logística autorizados
+const USUARIOS_LOGISTICA = ['Dante Clavijo','Miguel Calle','Omar Benavides','Herlinda Nizama','Pool Ramirez','Cristhian Revilla'];
+
 function onRolChange(rol) {
-  const wrap = document.getElementById('nombre_inp_wrap');
-  if (wrap) wrap.style.display = (rol === 'VIGILANTE' || rol === 'CHOFER') ? 'block' : 'none';
+  const wrap    = document.getElementById('nombre_inp_wrap');
+  const selWrap = document.getElementById('nombre_sel_wrap');
+  const txtWrap = document.getElementById('nombre_txt_wrap');
+  if (rol === 'EDITOR' || rol === 'ADMIN') {
+    if (wrap)    wrap.style.display = 'block';
+    if (selWrap) selWrap.style.display = 'block';
+    if (txtWrap) txtWrap.style.display = 'none';
+  } else if (rol === 'VIGILANTE' || rol === 'CHOFER') {
+    if (wrap)    wrap.style.display = 'block';
+    if (selWrap) selWrap.style.display = 'none';
+    if (txtWrap) txtWrap.style.display = 'block';
+  } else {
+    if (wrap)    wrap.style.display = 'none';
+  }
 }
 
 function tryLogin() {
@@ -4073,7 +4103,15 @@ function tryLogin() {
     msg.style.display = 'block';
     return;
   }
-  if ((rol === 'VIGILANTE' || rol === 'CHOFER')) {
+  if (rol === 'EDITOR' || rol === 'ADMIN') {
+    const nombre = (document.getElementById('nombre_sel')||{}).value || '';
+    if (!nombre) {
+      msg.textContent = 'Selecciona tu nombre para continuar.';
+      msg.style.display = 'block';
+      return;
+    }
+    SESION_VIG = { usuario: nombre.toLowerCase().replace(/ /g,'_'), nombre: nombre.trim(), rol };
+  } else if (rol === 'VIGILANTE' || rol === 'CHOFER') {
     const nombre = (document.getElementById('nombre_inp')||{}).value || '';
     if (!nombre.trim()) {
       msg.textContent = 'Ingresa tu nombre completo.';
@@ -4107,7 +4145,7 @@ function doLogin(rol) {
   if(localRestored) setSyncStatus('ok','Datos locales restaurados ✓ ('+((ST.pedidos||[]).length)+' pedidos)');
   document.getElementById('login_screen').style.display = 'none';
   const chip = document.getElementById('user_chip');
-  const chipLabel = (rol === 'VIGILANTE' || rol === 'CHOFER') && SESION_VIG.nombre
+  const chipLabel = SESION_VIG.nombre
     ? ROLES[rol].label + ' — ' + SESION_VIG.nombre
     : ROLES[rol].label;
   if (chip) { chip.textContent = chipLabel; chip.style.background = ROLES[rol].color; }
@@ -4198,6 +4236,32 @@ async function gsGetAllModules() {
   } catch(e) { return null; }
 }
 
+// Guarda el estado completamente procesado en el servidor (tras PROCESAR)
+async function gsPostEstado(payload) {
+  if (!GS_URL) return false;
+  try {
+    const r = await fetch(GS_URL + '?action=save_estado&t=' + Date.now(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(payload)
+    });
+    if (!r.ok) return false;
+    const j = await r.json();
+    return j && j.ok;
+  } catch(e) { return false; }
+}
+
+// Carga el estado procesado del servidor
+async function gsGetEstado() {
+  if (!GS_URL) return null;
+  try {
+    const r = await fetch(GS_URL + '?action=load_estado&t=' + Date.now());
+    if (!r.ok) return null;
+    const j = await r.json();
+    return j && j.ok ? j.estado : null;
+  } catch(e) { return null; }
+}
+
 // Aplica módulos del servidor al ST actual
 async function aplicarModulosServidor() {
   const modules = await gsGetAllModules();
@@ -4240,8 +4304,25 @@ async function syncNow() {
 }
 
 async function syncInicial() {
-  setSyncStatus('off');
-  if (!GS_URL) return;
+  setSyncStatus('busy','Cargando último estado del equipo...');
+  if (!GS_URL) { setSyncStatus('off','Sin servidor'); return; }
+  // Intentar cargar estado procesado (guardado tras último PROCESAR)
+  const estado = await gsGetEstado();
+  if (estado && estado.ST && estado.ST.pedidos && estado.ST.pedidos.length > 0) {
+    Object.assign(ST, estado.ST);
+    if (!ST.docs_relac)    ST.docs_relac = [];
+    if (!ST.series_picking) ST.series_picking = [];
+    if (!ST.cargados)       ST.cargados = {espe:0,rptr:0,base:0,conf:0,trans:0,myb:0,docs:0};
+    if (estado.flota)       flota = estado.flota;
+    try { localStorage.setItem('mrp_st2', JSON.stringify(ST)); } catch(e) {}
+    const total = (ST.pedidos||[]).length;
+    const procesadoPor = estado.procesado_por ? ' · por ' + estado.procesado_por : '';
+    const procesadoTs  = estado.procesado_ts  ? ' · ' + new Date(estado.procesado_ts).toLocaleString('es-PE',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
+    setSyncStatus('ok','🟢 Último estado del equipo: ' + total + ' pedidos' + procesadoPor + procesadoTs);
+    renderAll(); renderIntStatus();
+    return;
+  }
+  // Fallback: sincronización legacy
   await syncNow();
 }
 
@@ -4614,11 +4695,28 @@ async function procesarTodo(){
     setSyncStatus('ok','Datos sincronizados del equipo ✓');
     renderAll();
     renderIntStatus();
+    // Guardar estado procesado en servidor para que cualquier usuario lo vea
+    if(GS_URL && (ST.pedidos||[]).length>0){
+      const procesadoPor = SESION_VIG.nombre || ROL || 'Sistema';
+      el.innerHTML+=' <span style="color:#A0AEC0;font-size:12px">— Guardando en servidor...</span>';
+      const ok = await gsPostEstado({
+        ST: ST,
+        flota: flota,
+        procesado_por: procesadoPor,
+        procesado_ts: Date.now()
+      });
+      if(ok){
+        setSyncStatus('ok','🟢 Estado guardado en servidor · por '+procesadoPor);
+        el.innerHTML='<span style="color:#16A34A;font-weight:600">✅ '+totalEnST.length+' reportes activos: '+resumen+' — guardado por '+procesadoPor+'</span>';
+      } else {
+        el.innerHTML='<span style="color:#F7941D;font-weight:600">⚠️ Datos procesados localmente (no se pudo guardar en servidor)</span>';
+      }
+    }
   } else {
     el.innerHTML='<span style="color:#DC2626">⚠️ No hay datos cargados. Arrastra los archivos .xlsx sobre cada panel o pega el contenido copiado.</span>';
     setSyncStatus('err','Sin datos del equipo ni locales');
   }
-  setTimeout(()=>{el.innerHTML='';},7000);
+  setTimeout(()=>{el.innerHTML='';},8000);
 }
 
 function csv(txt,t){
