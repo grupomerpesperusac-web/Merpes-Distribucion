@@ -2758,6 +2758,7 @@ if(typeof window !== "undefined") window.qrcode = qrcode;
   <!-- Botón maestro -->
   <div style="margin-bottom:14px;text-align:center">
     <button class="btn btn-p" style="font-size:15px;padding:10px 32px;border-radius:10px" onclick="procesarTodo()">⚡ PROCESAR TODO</button>
+<button id="btn-actualizar-drives" onclick="actualizarDrives()" style="font-size:13px;padding:10px 22px;border-radius:10px;background:#1a3a5c;border:1.5px solid #29ABE2;color:#29ABE2;cursor:pointer;font-weight:600;display:none;" title="Descarga BASE DIARIA, CONFIRMACIONES, TRÁNSITO y MY BEES desde OneDrive">☁ Actualizar Drives</button>
     <div id="msg-global" style="margin-top:8px;font-size:13px;color:var(--ink-soft)"></div>
   </div>
 
@@ -4331,9 +4332,22 @@ setInterval(()=>{ if(ROL) syncNow(); }, 60000);
 function showConfig() {
   const m = document.getElementById('cfg_modal');
   document.getElementById('gs_url_inp').value = GS_URL;
-  // Mostrar token guardado (enmascarado)
+  // Mostrar estado del token guardado
   const tkInp = document.getElementById('sp_token_inp');
-  if(tkInp){ const t=spGetToken(); tkInp.value=t?'••••••••••••••••••••':'';}
+  const tkStatus = document.getElementById('sp_token_status');
+  const tkBadge = document.getElementById('sp_token_badge');
+  if(tkInp){ const t=spGetToken(); tkInp.value=t?'••••••••••••••••••••':''; }
+  if(tkStatus){
+    const t=spGetToken();
+    tkStatus.innerHTML = t
+      ? '<span style="color:#16A34A">✅ Token guardado en este navegador</span>'
+      : '<span style="color:#F7941D">⚠️ Sin token — solo Cristhian necesita configurarlo</span>';
+  }
+  if(tkBadge){
+    const t=spGetToken();
+    tkBadge.textContent = t ? '✅ token configurado' : '(clic para expandir)';
+    tkBadge.style.color = t ? '#16A34A' : '#718096';
+  }
   m.style.display = 'flex';
   try{ spRenderPendientes(); }catch(e){}
 }
@@ -4678,10 +4692,15 @@ async function procesarTodo(){
     }
   }
 
-  // PASO 0B: Auto-fetch de los 4 archivos de drives compartidos
-  // (BASE DIARIA, GESTIÓN CONFIRMACIONES, TRÁNSITO, MY BEES)
-  // Solo si hay token; si no hay token, continúa con lo que hay cargado manualmente.
-  await spAutoFetchDriveFiles(el);
+  // PASO 0B: Auto-fetch de los 4 archivos de OneDrive
+  // Si hay token (Cristhian): descarga y sube al servidor GAS para el equipo
+  // Si no hay token: usa lo que ya descargó el servidor GAS (subido por Cristhian)
+  const _spResult = await spAutoFetchDriveFiles(el);
+  if(_spResult && _spResult.tokenExpired){
+    // Token vencido — detener aquí para que Cristhian renueve
+    setSyncStatus('error','Token OneDrive vencido');
+    return;
+  }
 
   // Primero intentar procesar textareas (modo pegar)
   let procesadosPaste=0;
@@ -9295,11 +9314,10 @@ async function spFetchMyBees(token){
    Requiere token SharePoint. Si no hay token, omite silenciosamente
    para no bloquear el flujo manual (drag-drop sigue funcionando).
    ───────────────────────────────────────────────────────────────── */
-async function spAutoFetchDriveFiles(statusEl){
+async async function spAutoFetchDriveFiles(statusEl){
   const token = spGetToken();
   if(!token){
-    // Sin token: advertir y continuar (los archivos de drive no se obtienen)
-    if(statusEl) statusEl.innerHTML='<span style="color:#F7941D;font-weight:600">⚠️ Sin token SharePoint — usando solo archivos cargados manualmente. Ingresa el token en Configuración.</span>';
+    if(statusEl) statusEl.innerHTML='<span style="color:#F7941D;font-weight:600">⚠️ Sin token OneDrive — usando datos del servidor del equipo.</span>';
     return { ok:false, skipped:true };
   }
   if(statusEl) statusEl.innerHTML='<span style="color:#3B82F6;font-weight:600">☁️ Obteniendo archivos desde drives compartidos...</span>';
@@ -9338,7 +9356,7 @@ async function spAutoFetchDriveFiles(statusEl){
         ST.cargados.base = rows.length-1;
         resultados.push(`BASE(${importados}+${actualizados})`);
       }
-    } else { resultados.push('BASE(err '+r.status+')'); }
+    } else { resultados.push('BASE(err '+r.status+')'); if(r.status===401||r.status===403){ if(statusEl) statusEl.innerHTML='<span style="color:#EF4444;font-weight:600">❌ Token OneDrive vencido o inválido. Cristhian debe renovarlo en Configuración → OneDrive.</span>'; return { ok:false, tokenExpired:true }; } }
   } catch(e){ resultados.push('BASE(exc)'); console.warn('spAutoFetch BASE',e); }
 
   // ── 2. GESTIÓN CONFIRMACIONES — hoja GESTIÓN RUTA ──────────────
@@ -9431,6 +9449,62 @@ function spSaveToken(){
   spSetToken(t.trim());
   toast('🔑 Token SharePoint guardado en este navegador','ok');
 }
+
+/* ─────────────────────────────────────────────────────────────────
+   ACTUALIZAR DRIVES — descarga los 4 archivos de OneDrive sin
+   necesidad de hacer PROCESAR completo. Solo Cristhian necesita
+   token; el resto del equipo obtiene los datos via GAS server.
+   ───────────────────────────────────────────────────────────────── */
+async function actualizarDrives(){
+  const token = spGetToken();
+  if(!token){
+    mostrarModal('Sin token OneDrive',
+      '<p style="color:#e2e8f0;font-size:14px;line-height:1.6">'+
+      'No hay token Bearer configurado en este navegador.<br><br>'+
+      '<strong style="color:#F7941D">Solo Cristhian necesita configurar el token</strong> (una vez por navegador).<br><br>'+
+      'Ve a <strong>Configuración → OneDrive</strong> para ingresarlo.<br><br>'+
+      'Si no eres Cristhian, presiona <strong>PROCESAR TODO</strong> y los datos se descargarán del servidor del equipo.</p>');
+    return;
+  }
+  const el = document.getElementById('msg-global');
+  if(el) el.innerHTML='<span style="color:#29ABE2;font-weight:600">☁ Descargando 4 archivos de OneDrive...</span>';
+
+  const btn = document.getElementById('btn-actualizar-drives');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Descargando...'; }
+
+  try {
+    const result = await spAutoFetchDriveFiles(el);
+    if(result && result.ok){
+      if(el) el.innerHTML='<span style="color:#16A34A;font-weight:600">✅ Drives actualizados — ya puedes presionar PROCESAR TODO</span>';
+    } else if(result && result.tokenExpired){
+      if(el) el.innerHTML='<span style="color:#EF4444;font-weight:600">⚠️ Token vencido — ingresa uno nuevo en Configuración → OneDrive</span>';
+    }
+  } catch(e){
+    if(el) el.innerHTML='<span style="color:#EF4444;font-weight:600">❌ Error al conectar con OneDrive: '+e.message+'</span>';
+  } finally {
+    if(btn){ btn.disabled=false; btn.textContent='☁ Actualizar Drives'; }
+  }
+}
+
+/* Mostrar botón Actualizar Drives solo si hay token en este navegador */
+function initDrivesButton(){
+  const btn = document.getElementById('btn-actualizar-drives');
+  if(!btn) return;
+  const token = spGetToken();
+  btn.style.display = token ? 'inline-flex' : 'none';
+  // Mostrar/ocultar también cuando se guarda un nuevo token
+  const origSave = window.spSaveToken;
+  if(origSave) {
+    window._spSaveTokenOrig = origSave;
+    window.spSaveToken = function(){
+      _spSaveTokenOrig();
+      btn.style.display = spGetToken() ? 'inline-flex' : 'none';
+      showConfig();
+    };
+  }
+}
+document.addEventListener('DOMContentLoaded', initDrivesButton);
+
 </script>
 <!-- CONFIG MODAL -->
 <div id="cfg_modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:8000;align-items:center;justify-content:center;overflow-y:auto;">
@@ -9441,48 +9515,36 @@ function spSaveToken(){
     <label style="color:#a0aec0;font-size:13px;display:block;margin-bottom:6px;">URL Google Apps Script (sincronización)</label>
     <input id="gs_url_inp" type="text" placeholder="https://script.google.com/macros/s/..." style="width:100%;padding:10px;border-radius:8px;border:1px solid #2d3748;background:#2d3748;color:#e2e8f0;font-size:13px;box-sizing:border-box;margin-bottom:20px;">
 
-    <!-- SharePoint Integration -->
+    <!-- SharePoint / OneDrive — Token único por navegador -->
     <div style="border-top:1px solid #2d3748;padding-top:20px;margin-bottom:20px;">
-      <h4 style="color:#29ABE2;margin:0 0 14px;font-size:14px;display:flex;align-items:center;gap:8px;cursor:pointer;" onclick="openSpPanel()">
-        ☁ SharePoint / Microsoft 365 <span style="font-size:11px;color:#718096;">(clic para expandir)</span>
+      <h4 style="color:#29ABE2;margin:0 0 6px;font-size:14px;display:flex;align-items:center;gap:8px;cursor:pointer;" onclick="document.getElementById('sp_panel').style.display=document.getElementById('sp_panel').style.display==='none'?'block':'none'">
+        ☁ OneDrive / Microsoft 365 <span id="sp_token_badge" style="font-size:11px;color:#718096;">(clic para expandir)</span>
       </h4>
       <div id="sp_panel" style="display:none;">
-        <label style="color:#a0aec0;font-size:12px;display:block;margin-bottom:4px;">
-          Token Bearer (Microsoft Graph API)
-          <span style="color:#718096;"> — Obtén el tuyo en <a href="https://developer.microsoft.com/en-us/graph/graph-explorer" target="_blank" style="color:#29ABE2;">Graph Explorer</a> → Sign In → copy token</span>
-        </label>
-        <div style="display:flex;gap:8px;margin-bottom:12px;">
-          <input id="sp_token_inp" type="password" placeholder="eyJ0eXAiOiJKV1..." style="flex:1;padding:9px;border-radius:8px;border:1px solid #2d3748;background:#2d3748;color:#e2e8f0;font-size:12px;">
-          <button onclick="spSaveToken()" style="padding:9px 16px;background:#29ABE2;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;white-space:nowrap;">Guardar Token</button>
+        <div style="background:#1a2a1a;border:1px solid #16A34A;border-radius:8px;padding:10px 12px;margin-bottom:12px;">
+          <p style="color:#86efac;font-size:11px;margin:0;line-height:1.6;">
+            <strong>¿Cómo funciona?</strong><br>
+            Cristhian (o quien tenga acceso) ingresa el token <strong>una sola vez por navegador</strong>. Se guarda localmente y se usa en cada "Actualizar Drives". El token vence en ~1 hora; si falla, solo Cristhian lo renueva en su navegador — el resto del equipo ve los datos que Cristhian actualizó.<br>
+            <strong>Obtener token:</strong> <a href="https://developer.microsoft.com/en-us/graph/graph-explorer" target="_blank" style="color:#29ABE2;">Graph Explorer</a> → Sign in con cuenta Merpes → copiar Access Token.
+          </p>
         </div>
+        <label style="color:#a0aec0;font-size:12px;display:block;margin-bottom:4px;">Token Bearer (se guarda en este navegador)</label>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <input id="sp_token_inp" type="password" placeholder="eyJ0eXAiOiJKV1..." style="flex:1;padding:9px;border-radius:8px;border:1px solid #2d3748;background:#2d3748;color:#e2e8f0;font-size:12px;">
+          <button onclick="spSaveToken()" style="padding:9px 16px;background:#29ABE2;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;white-space:nowrap;">💾 Guardar</button>
+        </div>
+        <div id="sp_token_status" style="font-size:11px;color:#718096;margin-bottom:12px;"></div>
 
         <!-- Estado fotos pendientes -->
-        <div style="background:#0d1b2a;border-radius:8px;padding:12px;margin-bottom:12px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div style="background:#0d1b2a;border-radius:8px;padding:12px;margin-bottom:10px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
             <span style="color:#e2e8f0;font-size:12px;font-weight:600;">📷 Fotos GR — Cola SharePoint</span>
             <span id="sp-pending-count" style="font-size:12px;color:#a0aec0;">—</span>
           </div>
-          <p style="color:#718096;font-size:11px;margin-bottom:10px;">
-            Las fotos capturadas en Vigilancia se encolan automáticamente.<br>
-            Destino: <code style="color:#29ABE2;">COMERCIAL / LIQUIDACION / [Año] / [Mes] / [N° Pedido] /</code>
-          </p>
-          <button onclick="spSyncFotos()" style="width:100%;padding:9px;background:#1a3a5c;border:1px solid #29ABE2;color:#29ABE2;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;">
-            🔄 Sincronizar fotos pendientes → SharePoint
+          <p style="color:#718096;font-size:11px;margin:0 0 8px;">Fotos capturadas en Vigilancia se encolan automáticamente.</p>
+          <button onclick="spSyncFotos()" style="width:100%;padding:8px;background:#1a3a5c;border:1px solid #29ABE2;color:#29ABE2;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;">
+            🔄 Sincronizar fotos → SharePoint
           </button>
-        </div>
-
-        <!-- Importar datos -->
-        <div style="background:#0d1b2a;border-radius:8px;padding:12px;">
-          <span style="color:#e2e8f0;font-size:12px;font-weight:600;">📥 Importar datos desde SharePoint</span>
-          <p style="color:#718096;font-size:11px;margin:6px 0 10px;">Carga BASE DIARIA y estados de confirmación directamente desde los archivos de operaciones.</p>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button onclick="spImportarBaseDiaria()" style="flex:1;padding:9px;background:#1a3a2a;border:1px solid #16A34A;color:#16A34A;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;min-width:140px;">
-              📋 BASE DIARIA
-            </button>
-            <button onclick="spImportarConfirmaciones()" style="flex:1;padding:9px;background:#1a2a3a;border:1px solid #F7941D;color:#F7941D;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;min-width:140px;">
-              ✅ CONFIRMACIONES
-            </button>
-          </div>
         </div>
       </div>
     </div>
