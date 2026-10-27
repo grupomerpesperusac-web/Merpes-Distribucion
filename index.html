@@ -9448,6 +9448,11 @@ function spSaveToken(){
    necesidad de hacer PROCESAR completo. Solo Cristhian necesita
    token; el resto del equipo obtiene los datos via GAS server.
    ───────────────────────────────────────────────────────────────── */
+function gasGetUrl(){
+  // Devuelve la URL del servidor GAS configurada en este archivo
+  return (typeof GS_URL !== 'undefined' && GS_URL) ? GS_URL : null;
+}
+
 async function actualizarDrives(){
   const el = document.getElementById('msg-global');
   const btn = document.getElementById('btn-actualizar-drives');
