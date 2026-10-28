@@ -4190,7 +4190,7 @@ function setSyncStatus(status, msg) {
 async function gsGet() {
   if (!GS_URL) return null;
   try {
-    const r = await fetch(GS_URL + '?action=load&t=' + Date.now());
+    const r = await fetch(GS_URL + '?action=load&t=' + Date.now(), { redirect:'follow' });
     if (!r.ok) return null;
     const j = await r.json();
     return j && j.ok ? j.data : null;
@@ -4202,6 +4202,7 @@ async function gsPost(payload) {
   try {
     const r = await fetch(GS_URL + '?action=save&t=' + Date.now(), {
       method: 'POST',
+      redirect: 'follow',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(payload)
     });
@@ -4217,6 +4218,7 @@ async function gsPostModule(modulo, data) {
   try {
     const r = await fetch(GS_URL + '?action=save_module&t=' + Date.now(), {
       method: 'POST',
+      redirect: 'follow',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ modulo, data, ts: Date.now() })
     });
@@ -4230,7 +4232,7 @@ async function gsPostModule(modulo, data) {
 async function gsGetAllModules() {
   if (!GS_URL) return null;
   try {
-    const r = await fetch(GS_URL + '?action=load_modules&t=' + Date.now());
+    const r = await fetch(GS_URL + '?action=load_modules&t=' + Date.now(), { redirect:'follow' });
     if (!r.ok) return null;
     const j = await r.json();
     return j && j.ok ? j.modules : null;
@@ -4243,6 +4245,7 @@ async function gsPostEstado(payload) {
   try {
     const r = await fetch(GS_URL + '?action=save_estado&t=' + Date.now(), {
       method: 'POST',
+      redirect: 'follow',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(payload)
     });
@@ -4256,7 +4259,7 @@ async function gsPostEstado(payload) {
 async function gsGetEstado() {
   if (!GS_URL) return null;
   try {
-    const r = await fetch(GS_URL + '?action=load_estado&t=' + Date.now());
+    const r = await fetch(GS_URL + '?action=load_estado&t=' + Date.now(), { redirect:'follow' });
     if (!r.ok) return null;
     const j = await r.json();
     return j && j.ok ? j.estado : null;
@@ -9463,7 +9466,10 @@ async function actualizarDrives(){
     const gasUrl = gasGetUrl();
     if(!gasUrl){ throw new Error('URL del servidor no configurada'); }
 
-    const resp = await fetch(gasUrl + '?action=fetch_drives');
+    const resp = await fetch(gasUrl + '?action=fetch_drives', {
+      redirect: 'follow',
+      method: 'GET'
+    });
     if(!resp.ok) throw new Error('HTTP ' + resp.status);
     const json = await resp.json();
 
