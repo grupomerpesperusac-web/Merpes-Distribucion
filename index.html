@@ -9495,13 +9495,19 @@ async function actualizarDrives(){
     for(const m of modulos){
       try {
         const json = await fetchModulo(gasUrl, m.key, m.label);
-        if(json.ok && json.data){
-          ST[m.stKey] = json.data;
-          await gsPostModule(m.key, json.data);
+        if(json.ok && json.data && json.data.length > 0){
+          // Convertir array de objetos → TSV y procesar igual que carga manual
+          const rows = json.data;
+          const headers = Object.keys(rows[0]);
+          const tsv = [headers.join('\t')]
+            .concat(rows.map(r => headers.map(h => r[h] !== undefined ? String(r[h]) : '').join('\t')))
+            .join('\n');
+          // csv() llama a pBase/pConf/pTrans/pMyb según el tipo — procesa y renderiza
+          csv(tsv, m.key);
+          gsPostModule(m.key, rows);
           cargados++;
-          actualizarCardModulo(m.key, json.filas || json.data.length);
         } else {
-          errores.push(m.label + ': ' + (json.error || 'no encontrado'));
+          errores.push(m.label + ': ' + (json.error || 'sin datos'));
         }
       } catch(modErr){
         errores.push(m.label + ': ' + modErr.message);
@@ -9511,7 +9517,9 @@ async function actualizarDrives(){
     const errMsg = errores.length ? '<br><small style="color:#F7941D">⚠ ' + errores.join(' | ') + '</small>' : '';
 
     if(cargados > 0){
-      if(el) el.innerHTML='<span style="color:#16A34A;font-weight:600">✅ '+cargados+'/4 archivos cargados desde Google Drive</span>'+errMsg;
+      const totalPed = ST.pedidos ? ST.pedidos.length : 0;
+      if(el) el.innerHTML='<span style="color:#16A34A;font-weight:600">✅ '+cargados+'/4 módulos cargados desde Drive — '+totalPed+' pedidos en motor</span>'+errMsg;
+      renderAll(); renderIntStatus();
     } else {
       if(el) el.innerHTML='<span style="color:#EF4444;font-weight:600">❌ No se pudo cargar ningún archivo.</span>'+errMsg+'<br><small>Verifica el Execution log en Google Apps Script.</small>';
     }
