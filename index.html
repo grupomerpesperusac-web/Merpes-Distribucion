@@ -9459,57 +9459,61 @@ async function actualizarDrives(){
   if(el) el.innerHTML='<span style="color:#29ABE2;font-weight:600">☁ Leyendo archivos desde Google Drive compartido...</span>';
   if(btn){ btn.disabled=true; btn.textContent='⏳ Leyendo...'; }
 
+  // Llama al GAS módulo por módulo para evitar timeout de una sola llamada grande
+  async function fetchModulo(gasUrl, modulo, label){
+    if(el) el.innerHTML='<span style="color:#29ABE2;font-weight:600">☁ Descargando '+label+'...</span>';
+    const controller = new AbortController();
+    const tid = setTimeout(()=>controller.abort(), 90000);
+    try {
+      const r = await fetch(gasUrl + '?action=fetch_one&modulo=' + modulo, {
+        signal: controller.signal, redirect: 'follow'
+      });
+      clearTimeout(tid);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return await r.json();
+    } catch(e2){
+      clearTimeout(tid);
+      if(e2.name==='AbortError') throw new Error('Timeout en '+label+' (>90s)');
+      throw e2;
+    }
+  }
+
   try {
     const gasUrl = gasGetUrl();
     if(!gasUrl){ throw new Error('URL del servidor no configurada'); }
 
-    const resp = await fetch(gasUrl + '?action=fetch_drives');
-    if(!resp.ok) throw new Error('HTTP ' + resp.status);
-    const json = await resp.json();
-
-    if(!json.ok) throw new Error(json.error || 'Error del servidor');
-
-    const archivos = json.archivos || {};
-    const errores  = json.errores  || {};
     let cargados = 0;
+    const errores = [];
 
-    // BASE DIARIA
-    if(archivos.base && archivos.base.data){
-      ST.base_diaria = archivos.base.data;
-      await gsPostModule('base', archivos.base.data);
-      cargados++;
-      actualizarCardModulo('base', archivos.base.filas);
-    }
-    // CONFIRMACIONES
-    if(archivos.conf && archivos.conf.data){
-      ST.confirmaciones = archivos.conf.data;
-      await gsPostModule('conf', archivos.conf.data);
-      cargados++;
-      actualizarCardModulo('conf', archivos.conf.filas);
-    }
-    // TRÁNSITO
-    if(archivos.trans && archivos.trans.data){
-      ST.transito = archivos.trans.data;
-      await gsPostModule('trans', archivos.trans.data);
-      cargados++;
-      actualizarCardModulo('trans', archivos.trans.filas);
-    }
-    // MY BEES
-    if(archivos.myb && archivos.myb.data){
-      ST.mybees = archivos.myb.data;
-      await gsPostModule('myb', archivos.myb.data);
-      cargados++;
-      actualizarCardModulo('myb', archivos.myb.filas);
+    const modulos = [
+      { key:'base',  label:'Base Diaria',          stKey:'base_diaria'    },
+      { key:'conf',  label:'Confirmaciones',        stKey:'confirmaciones' },
+      { key:'trans', label:'Reporte Tránsito',      stKey:'transito'       },
+      { key:'myb',   label:'Reporte My Bees',       stKey:'mybees'         }
+    ];
+
+    for(const m of modulos){
+      try {
+        const json = await fetchModulo(gasUrl, m.key, m.label);
+        if(json.ok && json.data){
+          ST[m.stKey] = json.data;
+          await gsPostModule(m.key, json.data);
+          cargados++;
+          actualizarCardModulo(m.key, json.filas || json.data.length);
+        } else {
+          errores.push(m.label + ': ' + (json.error || 'no encontrado'));
+        }
+      } catch(modErr){
+        errores.push(m.label + ': ' + modErr.message);
+      }
     }
 
-    const errMsg = Object.keys(errores).length
-      ? ' | Sin encontrar: ' + Object.keys(errores).join(', ')
-      : '';
+    const errMsg = errores.length ? '<br><small style="color:#F7941D">⚠ ' + errores.join(' | ') + '</small>' : '';
 
     if(cargados > 0){
-      if(el) el.innerHTML='<span style="color:#16A34A;font-weight:600">✅ '+cargados+'/4 archivos cargados desde Google Drive'+errMsg+'</span>';
+      if(el) el.innerHTML='<span style="color:#16A34A;font-weight:600">✅ '+cargados+'/4 archivos cargados desde Google Drive</span>'+errMsg;
     } else {
-      if(el) el.innerHTML='<span style="color:#F7941D;font-weight:600">⚠️ No se encontraron archivos en la carpeta compartida'+errMsg+'.<br>Asegúrate de que los archivos estén en la carpeta <strong>Merpes - Reportes Activos</strong>.</span>';
+      if(el) el.innerHTML='<span style="color:#EF4444;font-weight:600">❌ No se pudo cargar ningún archivo.</span>'+errMsg+'<br><small>Verifica el Execution log en Google Apps Script.</small>';
     }
   } catch(e){
     if(el) el.innerHTML='<span style="color:#EF4444;font-weight:600">❌ Error: '+e.message+'</span>';
