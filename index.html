@@ -2762,6 +2762,7 @@ if(typeof window !== "undefined") window.qrcode = qrcode;
     <button class="btn btn-p" style="font-size:15px;padding:10px 32px;border-radius:10px" onclick="procesarTodo()">⚡ PROCESAR TODO</button>
 <button id="btn-actualizar-drives" onclick="actualizarDrives()" style="font-size:13px;padding:10px 22px;border-radius:10px;background:#1a3a5c;border:1.5px solid #29ABE2;color:#29ABE2;cursor:pointer;font-weight:600;display:none;" title="Descarga BASE DIARIA, CONFIRMACIONES, TRÁNSITO y MY BEES desde OneDrive">☁ Actualizar Drives</button>
     <button onclick="construirBaseDiaria()" style="font-size:13px;padding:10px 22px;border-radius:10px;background:#064E3B;border:1.5px solid #10B981;color:#10B981;cursor:pointer;font-weight:600;" title="Cruza ESPE + RPTR + Confirmaciones para construir Base Diaria automáticamente">🔄 Construir Base Diaria (ESPE+RPTR+CONF)</button>
+    <button id="btn-exportar-base" onclick="exportarBaseDiaria()" style="font-size:13px;padding:10px 22px;border-radius:10px;background:#1e3a5f;border:1.5px solid #60A5FA;color:#60A5FA;cursor:pointer;font-weight:600;display:none;" title="Descarga la Base Diaria construida como archivo Excel (.xlsx)">⬇ Descargar Base Diaria (.xlsx)</button>
     <div id="msg-global" style="margin-top:8px;font-size:13px;color:var(--ink-soft)"></div>
     <div id="msg-base-diaria" style="margin-top:6px;font-size:12px;"></div>
   </div>
@@ -10052,6 +10053,10 @@ function construirBaseDiaria() {
       <strong>${difs}</strong> diferencias de estado</span>`;
   }
 
+  // Mostrar botón de descarga
+  const btnExport = document.getElementById('btn-exportar-base');
+  if (btnExport) btnExport.style.display = '';
+
   // Trigger refresh del pipeline si está activo
   if (document.getElementById('sec-pipeline') && document.getElementById('sec-pipeline').style.display !== 'none') {
     // Pasar datos merged al pipeline
@@ -10060,6 +10065,82 @@ function construirBaseDiaria() {
   }
 }
 
+// ── EXPORTAR BASE DIARIA A XLSX ───────────────────────────────
+function exportarBaseDiaria() {
+  const base = window.ST && window.ST.baseDiaria;
+  if (!base || !base.length) {
+    alert('Primero construye la Base Diaria con el botón 🔄');
+    return;
+  }
+
+  // Columnas a exportar: primero las del ESPE, luego las enriquecidas
+  const colsEnriquecidas = ['_enRptr','_enConf','_gr','_carrier','_fechaRecojo','_estadoConf','_difEstado'];
+  const colsEspe = Object.keys(base[0]).filter(k => !k.startsWith('_'));
+
+  // Encabezados amigables para columnas enriquecidas
+  const headerMap = {
+    '_enRptr':     'TIENE GR',
+    '_enConf':     'TIENE CONF',
+    '_gr':         'N° GR',
+    '_carrier':    'CARRIER',
+    '_fechaRecojo':'F. RECOJO',
+    '_estadoConf': 'ESTADO CONF',
+    '_difEstado':  'DIFERENCIA ESTADO'
+  };
+
+  const allCols = [...colsEspe, ...colsEnriquecidas];
+  const headers = allCols.map(c => headerMap[c] || c);
+
+  // Construir filas
+  const rows = base.map(row =>
+    allCols.map(c => {
+      const v = row[c];
+      if (c === '_enRptr' || c === '_enConf') return v ? 'SÍ' : 'NO';
+      return v !== undefined && v !== null ? String(v) : '';
+    })
+  );
+
+  // Crear workbook con SheetJS (ya incluido en la webapp)
+  if (typeof XLSX === 'undefined') {
+    alert('Error: librería XLSX no disponible. Recarga la página e intenta nuevamente.');
+    return;
+  }
+
+  const wsData = [headers, ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  // Ancho de columnas automático
+  const colWidths = headers.map((h, i) => {
+    const maxLen = Math.max(h.length, ...rows.map(r => (r[i] || '').length));
+    return { wch: Math.min(maxLen + 2, 40) };
+  });
+  ws['!cols'] = colWidths;
+
+  // Nombre del archivo con fecha de hoy
+  const hoy = new Date();
+  const dd = String(hoy.getDate()).padStart(2,'0');
+  const mm = String(hoy.getMonth()+1).padStart(2,'0');
+  const yyyy = hoy.getFullYear();
+  const nombreArchivo = `BASE_DIARIA_${dd}.${mm}.${yyyy}.xlsx`;
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Base Diaria');
+  XLSX.writeFile(wb, nombreArchivo);
+
+  // Feedback visual
+  const btnExport = document.getElementById('btn-exportar-base');
+  if (btnExport) {
+    const textoOrig = btnExport.textContent;
+    btnExport.textContent = '✅ Descargado!';
+    btnExport.style.borderColor = '#10B981';
+    btnExport.style.color = '#10B981';
+    setTimeout(() => {
+      btnExport.textContent = textoOrig;
+      btnExport.style.borderColor = '#60A5FA';
+      btnExport.style.color = '#60A5FA';
+    }, 2500);
+  }
+}
 
 // ── PROVINCIAS MEJORADO ───────────────────────────────────────
 let _pvVista = 'todos';
