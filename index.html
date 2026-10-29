@@ -9775,7 +9775,7 @@ function _actualizarMybeesStatus() {
   const el = document.getElementById('corte-mybees-status');
   if (!el) return;
   // Determinar si hay datos de Mybees cargados
-  const hasMybees = (window.ST && window.ST.mybees && window.ST.mybees.length > 0);
+  const hasMybees = (typeof ST !== 'undefined' && ST.mybees && ST.mybees.length > 0);
   el.textContent = hasMybees ? '🐝 Mybees: integrado ✓' : '🐝 Mybees: sin datos';
   el.style.background = hasMybees ? '#D1FAE5' : '#F3E8FF';
   el.style.color = hasMybees ? '#065F46' : '#7C3AED';
@@ -9852,8 +9852,10 @@ function renderPipeline() {
 
   // Obtener datos — ESPE es la fuente principal
   let rows = [];
-  if (window.ST && window.ST.espe && window.ST.espe.length) {
-    rows = window.ST.espe;
+  if (typeof ST !== 'undefined' && ST.baseDiaria && ST.baseDiaria.length) {
+    rows = ST.baseDiaria;
+  } else if (typeof ST !== 'undefined' && (ST.espe_todos || ST.pedidos) && (ST.espe_todos || ST.pedidos).length) {
+    rows = ST.espe_todos || ST.pedidos;
   } else if (window.allData && window.allData.length) {
     rows = window.allData;
   }
@@ -9976,7 +9978,7 @@ function _renderPipelineKpis(clasificados) {
   }).length;
 
   // Mybees %
-  const mypebes = (window.ST && window.ST.mybees && window.ST.mybees.length) || 0;
+  const mypebes = (typeof ST !== 'undefined' && ST.mybees && ST.mybees.length) || 0;
   const activosLima = clasificados.filter(r => ['PROG_LIMA','VENCIDA'].includes(r._pipeline)).length;
   const mybesPct = activosLima > 0 ? Math.round(mypebes / activosLima * 100) : 0;
 
@@ -9996,12 +9998,13 @@ function construirBaseDiaria() {
   const msg = document.getElementById('msg-base-diaria');
   if (msg) msg.textContent = '⏳ Cruzando fuentes...';
 
-  const espe = (window.ST && window.ST.espe) || [];
-  const rptr = (window.ST && window.ST.rptr) || [];
-  const conf = (window.ST && window.ST.conf) || [];
+  // ST es la variable global; usar los nombres reales del estado
+  const espe = (typeof ST !== 'undefined' && (ST.espe_todos || ST.pedidos)) || [];
+  const rptr = (typeof ST !== 'undefined' && ST.pedidos_rptr) || [];
+  const conf = (typeof ST !== 'undefined' && ST.confirmaciones) || [];
 
   if (!espe.length) {
-    if (msg) msg.innerHTML = '<span style="color:#EF4444">⚠️ Primero carga el archivo ESPE</span>';
+    if (msg) msg.innerHTML = '<span style="color:#EF4444">⚠️ Primero carga el archivo ESPE (sin datos detectados)</span>';
     return;
   }
 
@@ -10037,8 +10040,7 @@ function construirBaseDiaria() {
   });
 
   // Guardar en ST
-  if (!window.ST) window.ST = {};
-  window.ST.baseDiaria = merged;
+  ST.baseDiaria = merged;
 
   // Stats
   const totalEspe = espe.length;
@@ -10060,14 +10062,13 @@ function construirBaseDiaria() {
   // Trigger refresh del pipeline si está activo
   if (document.getElementById('sec-pipeline') && document.getElementById('sec-pipeline').style.display !== 'none') {
     // Pasar datos merged al pipeline
-    if (window.ST) window.ST.espe = merged;
     renderPipeline();
   }
 }
 
 // ── EXPORTAR BASE DIARIA A XLSX ───────────────────────────────
 function exportarBaseDiaria() {
-  const base = window.ST && window.ST.baseDiaria;
+  const base = typeof ST !== 'undefined' && ST.baseDiaria;
   if (!base || !base.length) {
     alert('Primero construye la Base Diaria con el botón 🔄');
     return;
@@ -10200,7 +10201,7 @@ function renderProvinciasMejorado() {
   if (!tbody) return;
 
   // Fuente de datos
-  let rows = (window.ST && window.ST.baseDiaria) || (window.ST && window.ST.espe) || [];
+  let rows = (typeof ST !== 'undefined' && ST.baseDiaria) || (typeof ST !== 'undefined' && (ST.espe_todos || ST.pedidos)) || [];
   // Filtrar solo provincia
   const dptos_lima = ['LIMA','CALLAO'];
   let prov = rows.filter(r => {
