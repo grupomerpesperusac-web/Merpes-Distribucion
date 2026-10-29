@@ -10026,44 +10026,95 @@ function construirBaseDiaria() {
     if (k) confMap[k] = r;
   });
 
-  // Merge ESPE + RPTR + CONF
-  const merged = espe.map(row => {
-    const key = _keyPedido(row);
-    const rRow = rptrMap[key] || {};
-    const cRow = confMap[key] || {};
-    // Extraer GR del RPTR (varios alias posibles según el archivo)
-    const gr = String(rRow.GR || rRow['N°GR'] || rRow['N° GR'] || rRow['NROGR'] || rRow.gr || '').trim();
-    // Extraer carrier, fecha y estado del CONF
-    const carrier = String(cRow.CARRIER || cRow.Carrier || cRow.carrier || '').trim();
-    const fechaRec = String(cRow['FECHA_RECOJO'] || cRow['F.RECOJO'] || cRow['FECHA RECOJO'] || cRow.fecha_recojo || '').trim();
-    const estadoConf = String(cRow.ESTADO_CONF || cRow['ESTADO CONF'] || cRow.estado_conf || cRow.ESTADO || '').trim();
-    const estadoEspe = String(row.estado || row.ESTADO || '').toUpperCase().trim();
-    return {
-      ...row,
-      _enRptr: !!rptrMap[key],
-      _enConf: !!confMap[key],
-      _gr: gr,
-      _carrier: carrier,
-      _fechaRecojo: fechaRec,
-      _estadoConf: estadoConf,
-      _difEstado: (estadoConf && estadoConf.toUpperCase() !== estadoEspe) ? '⚠️ Estado diff.' : ''
-    };
-  });
+  // ── LÓGICA DE CRISTHIAN: solo CONFIRMADO con GR/NSG emitida ──
+  // Función helper para detectar si una fila RPTR tiene GR o NSG1/NSG2
+  function _tieneGR(rRow) {
+    const guia = String(
+      rRow.GUIA || rRow.guia || rRow['N°GR'] || rRow['N° GR'] || rRow.GR || rRow.gr ||
+      rRow['GUIA DE REMISION'] || rRow['GUÍA DE REMISIÓN'] || ''
+    ).trim();
+    const estado = String(rRow.ESTADO || rRow.estado || '').toUpperCase().trim();
+    // Tiene GR si hay número de guía O si el estado indica NSG1/NSG2
+    return guia.length > 0 || estado === 'NSG1' || estado === 'NSG2';
+  }
+
+  // Merge ESPE + RPTR + CONF — solo pedidos CONFIRMADO que tienen GR/NSG en RPTR
+  const merged = espe
+    .filter(row => {
+      const estadoEspe = String(row.estado || row.ESTADO || '').toUpperCase().trim();
+      if (estadoEspe !== 'CONFIRMADO') return false;
+      const key = _keyPedido(row);
+      const rRow = rptrMap[key];
+      return rRow && _tieneGR(rRow);
+    })
+    .map(row => {
+      const key = _keyPedido(row);
+      const rRow = rptrMap[key] || {};
+      const cRow = confMap[key] || {};
+
+      // ── Campos desde RPTR (todos los que existen en el modelo) ──
+      const gr = String(
+        rRow.GUIA || rRow.guia || rRow['N°GR'] || rRow['N° GR'] || rRow.GR || rRow.gr || ''
+      ).trim();
+      const fechaGuia = String(rRow['FECHA GUIA'] || rRow.FECHA_GUIA || rRow.fecha_guia || '').trim();
+      const blt = String(rRow.BLT || rRow.blt || '').trim();
+      const placa = String(rRow.PLACA || rRow.placa || '').trim();
+      const fechaDespacho = String(rRow['FECHA DESPACHO'] || rRow.FECHA_DESPACHO || rRow.fecha_despacho || '').trim();
+      const detalle = String(rRow.DETALLE || rRow.detalle || '').trim();
+      const subDetalle = String(rRow.SUBDETALLE || rRow['SUB DETALLE'] || rRow.sub_detalle || rRow.SUBDETALLE || '').trim();
+      const vendedor = String(rRow.VENDEDOR || rRow.vendedor || '').trim();
+      const liderArea = String(rRow['LIDER DE AREA'] || rRow.LIDER_DE_AREA || rRow.lider_area || '').trim();
+      const producto = String(rRow.PRODUCTO || rRow.producto || row.producto || '').trim();
+      const und = String(rRow.UND || rRow.und || row.und || '').trim();
+      const distRptr = String(rRow.DISTRITO || rRow.distrito || row.distrito || '').trim();
+      const fvRptr = String(rRow['FUERZA DE VENTA'] || rRow.FUERZA_DE_VENTA || rRow.fuerza_venta || row.fuerza_venta || row.canal || '').trim();
+
+      // ── Campos desde CONF ──
+      const carrier = String(cRow.CARRIER || cRow.Carrier || cRow.carrier || '').trim();
+      const fechaRec = String(cRow['FECHA_RECOJO'] || cRow['F.RECOJO'] || cRow['FECHA RECOJO'] || cRow.fecha_recojo || '').trim();
+      const estadoConf = String(cRow.ESTADO_CONF || cRow['ESTADO CONF'] || cRow.estado_conf || cRow.ESTADO || '').trim();
+      const estadoEspe = String(row.estado || row.ESTADO || '').toUpperCase().trim();
+
+      return {
+        ...row,
+        // Sobreescribir con datos del RPTR (más completos/actuales)
+        producto,
+        und,
+        blt,
+        placa,
+        fecha_despacho: fechaDespacho,
+        detalle,
+        sub_detalle: subDetalle,
+        vendedor,
+        lider_area: liderArea,
+        fecha_guia: fechaGuia,
+        distrito: distRptr || row.distrito,
+        fuerza_venta: fvRptr || row.fuerza_venta,
+        // Campos enriquecidos
+        _enRptr: true,
+        _enConf: !!confMap[key],
+        _gr: gr,
+        _carrier: carrier,
+        _fechaRecojo: fechaRec,
+        _estadoConf: estadoConf,
+        _difEstado: (estadoConf && estadoConf.toUpperCase() !== estadoEspe) ? '⚠️ Estado diff.' : ''
+      };
+    });
 
   // Guardar en el ST global
   ST.baseDiaria = merged;
 
   // Stats
   const totalEspe = espe.length;
-  const enRptr = merged.filter(r => r._enRptr).length;
+  const confirmados = espe.filter(r => String(r.estado||r.ESTADO||'').toUpperCase().trim()==='CONFIRMADO').length;
+  const enRptr = merged.length;
   const enConf = merged.filter(r => r._enConf).length;
   const difs = merged.filter(r => r._difEstado).length;
 
   if (msg) {
-    msg.innerHTML = `<span style="color:#10B981">✅ Base Diaria construida: <strong>${totalEspe}</strong> pedidos ESPE | 
-      <strong>${enRptr}</strong> con GR (RPTR) | 
-      <strong>${enConf}</strong> con confirmación | 
-      <strong>${difs}</strong> diferencias de estado</span>`;
+    msg.innerHTML = `<span style="color:#10B981">✅ Base Diaria (Cristhian): <strong>${enRptr}</strong> pedidos listos para ruta |
+      (ESPE total: ${totalEspe} | CONFIRMADOS: ${confirmados} | con GR/NSG: <strong>${enRptr}</strong> |
+      con confirmación: ${enConf} | diferencias de estado: ${difs})</span>`;
   }
 
   // Mostrar botón de descarga
@@ -10117,14 +10168,14 @@ function exportarBaseDiaria() {
     row.dir || row.direccion || '',                            // DIRECCIÓN
     row.producto || '',                                        // PRODUCTO
     row.und || row.qty || '',                                  // UND
-    row.f_estado || row.fecha_guia || '',                      // FECHA GUIA
+    row.fecha_guia || row.f_estado || '',                      // FECHA GUIA
     row.blt || '',                                             // BLT
-    row.guia || row._gr || '',                                 // GUIA
+    row._gr || row.guia || '',                                 // GUIA (prioritizar GR del RPTR)
     row.fecha_despacho || '',                                  // FECHA DESPACHO
     row.estado || '',                                          // ESTADO
     row.placa || '',                                           // PLACA
-    row.detalle || row._carrier || '',                         // DETALLE
-    row.sub_detalle || row.sub_estado || '',                   // SUB DETALLE
+    row.detalle || '',                                         // DETALLE
+    row.sub_detalle || '',                                     // SUB DETALLE
     row.vendedor || '',                                        // VENDEDOR
     row.lider_area || '',                                      // LIDER DE AREA
     row.distrito || '',                                        // DISTRITO
