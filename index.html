@@ -2684,6 +2684,7 @@ if(typeof window !== "undefined") window.qrcode = qrcode;
     <p>Grupo Merpes S.A.C. &mdash; Jefatura de Administración y Logística &mdash; Lima, Perú</p>
   </div>
   <div class="hdr-badge" id="hdr-date">Cargando...</div>
+<div id="hdr-corte" style="background:#1a3a5c;border:1.5px solid #F7941D;color:#F7941D;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;display:none;white-space:nowrap;">⏰ CORTE: ...</div>
 <span id="sync_indicator" title="Estado de sincronización" style="font-size:18px;cursor:default;">⚫</span>
 <span id="user_chip" style="background:#2d3748;color:#e2e8f0;padding:4px 10px;border-radius:20px;font-size:12px;margin-left:6px;"></span>
 <button id="btn_config" onclick="showConfig()" style="display:none;background:#553C9A;color:white;border:none;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;margin-left:6px;">⚙ Config</button>
@@ -2691,6 +2692,7 @@ if(typeof window !== "undefined") window.qrcode = qrcode;
 
 <!-- ══ NAV ════════════════════════════════════════════════ -->
 <nav class="nav" id="main-nav">
+  <button class="nav-btn" onclick="showTab('pipeline',this)" style="border-bottom-color:#0EA5E9;color:#0EA5E9" id="nav-pipeline">📋 Pipeline</button>
   <button class="nav-btn" onclick="showTab('flota',this)">🚛 Flota del Día</button>
   <button class="nav-btn active" onclick="showTab('import',this)">📥 Carga de Datos</button>
   <button class="nav-btn" onclick="showTab('motor',this)">⚙️ Motor de Ruteo</button>
@@ -2759,7 +2761,9 @@ if(typeof window !== "undefined") window.qrcode = qrcode;
   <div style="margin-bottom:14px;text-align:center">
     <button class="btn btn-p" style="font-size:15px;padding:10px 32px;border-radius:10px" onclick="procesarTodo()">⚡ PROCESAR TODO</button>
 <button id="btn-actualizar-drives" onclick="actualizarDrives()" style="font-size:13px;padding:10px 22px;border-radius:10px;background:#1a3a5c;border:1.5px solid #29ABE2;color:#29ABE2;cursor:pointer;font-weight:600;display:none;" title="Descarga BASE DIARIA, CONFIRMACIONES, TRÁNSITO y MY BEES desde OneDrive">☁ Actualizar Drives</button>
+    <button onclick="construirBaseDiaria()" style="font-size:13px;padding:10px 22px;border-radius:10px;background:#064E3B;border:1.5px solid #10B981;color:#10B981;cursor:pointer;font-weight:600;" title="Cruza ESPE + RPTR + Confirmaciones para construir Base Diaria automáticamente">🔄 Construir Base Diaria (ESPE+RPTR+CONF)</button>
     <div id="msg-global" style="margin-top:8px;font-size:13px;color:var(--ink-soft)"></div>
+    <div id="msg-base-diaria" style="margin-top:6px;font-size:12px;"></div>
   </div>
 
   <div class="import-grid">
@@ -2932,7 +2936,32 @@ if(typeof window !== "undefined") window.qrcode = qrcode;
 <!-- PESTAÑA 3: MOTOR DE RUTEO                            -->
 <!-- ══════════════════════════════════════════════════════ -->
 <section class="sec" id="sec-motor">
-  <div class="ph"><h1>Motor de Ruteo — Plan del Día</h1><p>Asigne unidad y vuelta a cada pedido. Capacidad se actualiza en tiempo real.</p></div>
+  <div class="ph">
+    <h1>Motor de Ruteo — Plan del Día</h1>
+    <p>Asigne unidad y vuelta a cada pedido. Capacidad se actualiza en tiempo real.</p>
+  </div>
+  <!-- SELECTOR DE CORTE -->
+  <div class="card" style="margin-bottom:14px;padding:12px 16px">
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <span style="font-size:13px;font-weight:700;color:#0F1923">✂️ Corte Activo:</span>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+        <input type="radio" name="corte-sel" value="1era" onchange="setCortActivo('1era')" checked
+          style="accent-color:#29ABE2;width:16px;height:16px">
+        <span style="font-weight:600;color:#1D4ED8">1ª Vuelta</span>
+        <span style="font-size:11px;color:#6B7280">(F.Prog = mañana o fecha asignada)</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+        <input type="radio" name="corte-sel" value="2da" onchange="setCortActivo('2da')"
+          style="accent-color:#F7941D;width:16px;height:16px">
+        <span style="font-weight:600;color:#C2410C">2ª Vuelta</span>
+        <span style="font-size:11px;color:#6B7280">(pedidos adicionales del mismo día)</span>
+      </label>
+      <div id="corte-mybees-status" style="margin-left:auto;font-size:11px;padding:4px 10px;border-radius:12px;background:#F3E8FF;color:#7C3AED;font-weight:600;">🐝 Mybees: verificando...</div>
+    </div>
+    <div id="corte-filtro-info" style="margin-top:8px;font-size:11px;color:#6B7280;background:#F9FAFB;border-radius:6px;padding:6px 10px;">
+      Filtrando por: <strong id="corte-filtro-desc">1ª Vuelta — todos los pedidos con F.Prog asignada para mañana</strong>
+    </div>
+  </div>
   <!-- MAPA DE DESPACHOS LIMA — arriba de la tabla -->
   <div class="card" style="margin-bottom:14px" id="motor-map-card">
     <div class="ch" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
@@ -3008,16 +3037,82 @@ if(typeof window !== "undefined") window.qrcode = qrcode;
 <!-- PESTAÑA 5: PROVINCIAS                                -->
 <!-- ══════════════════════════════════════════════════════ -->
 <section class="sec" id="sec-provincias">
-  <div class="ph"><h1>Pedidos a Provincia</h1><p>Dpto. ≠ Lima / Callao → Enotria · Toscano · Meta Logistic (5–10 días hábiles)</p></div>
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
-    <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800" id="pv-cnt">0</div><div style="font-size:12px;color:var(--ink-soft)">Pedidos pendientes</div></div>
-    <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800" id="pv-kg">0 kg</div><div style="font-size:12px;color:var(--ink-soft)">Peso total</div></div>
-    <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800" id="pv-sol">S/ 0</div><div style="font-size:12px;color:var(--ink-soft)">Monto total</div></div>
+  <div class="ph" style="background:linear-gradient(135deg,#4C1D95 0%,#9333EA 100%);border-radius:12px;padding:20px 24px;margin-bottom:20px">
+    <h1 style="color:#fff;margin:0 0 6px">🌎 Pedidos a Provincia</h1>
+    <p style="color:#E9D5FF;margin:0;font-size:13px">Dpto. ≠ Lima / Callao → Enotria · Toscano · Meta Logistic (5–10 días hábiles)</p>
   </div>
+
+  <!-- ALERTA GR SIN CARRIER -->
+  <div id="pv-alerta-gr" style="display:none;background:#FEF3C7;border:2px solid #F59E0B;border-radius:8px;padding:12px 16px;margin-bottom:14px">
+    <div style="font-size:13px;font-weight:700;color:#92400E;">⚠️ ALERTA: GRs emitidas sin carrier confirmado</div>
+    <div id="pv-alerta-gr-detalle" style="font-size:12px;color:#78350F;margin-top:4px"></div>
+    <div style="font-size:11px;color:#92400E;margin-top:4px;">🔴 Impacto: el kardex ya descontó stock pero el producto sigue en almacén. Confirmar carrier urgente.</div>
+  </div>
+
+  <!-- KPI tiles resumen -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:14px">
+    <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800;color:#9333EA" id="pv-cnt">0</div><div style="font-size:11px;color:var(--ink-soft)">Total Provincia</div></div>
+    <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800;color:#F59E0B" id="pv-sin-gr">0</div><div style="font-size:11px;color:var(--ink-soft)">Sin GR (acumulando)</div></div>
+    <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800;color:#059669" id="pv-con-gr">0</div><div style="font-size:11px;color:var(--ink-soft)">Con GR emitida</div></div>
+    <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800" id="pv-kg">0 kg</div><div style="font-size:11px;color:var(--ink-soft)">Peso total</div></div>
+    <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800" id="pv-sol">S/ 0</div><div style="font-size:11px;color:var(--ink-soft)">Monto total</div></div>
+  </div>
+
+  <!-- Sub-vistas GR -->
+  <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <button onclick="pvSetVista('todos')" id="pv-btn-todos"
+      style="padding:7px 16px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:2px solid #9333EA;background:#9333EA;color:#fff">
+      Todos
+    </button>
+    <button onclick="pvSetVista('sin-gr')" id="pv-btn-sin-gr"
+      style="padding:7px 16px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:2px solid #F59E0B;background:#FFF7ED;color:#92400E">
+      ⏳ Sin GR — Acumulando
+    </button>
+    <button onclick="pvSetVista('con-gr')" id="pv-btn-con-gr"
+      style="padding:7px 16px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:2px solid #059669;background:#F0FDF4;color:#065F46">
+      ✅ Con GR — Emitida
+    </button>
+    <div id="pv-carrier-resumen" style="margin-left:auto;font-size:11px;color:#6B7280;align-self:center"></div>
+  </div>
+
+  <!-- Campo registro de carrier para nuevo pedido provincia -->
+  <div class="card" style="margin-bottom:14px" id="pv-registro-carrier">
+    <div class="ch" style="background:#F5F3FF;border-left:4px solid #9333EA">
+      <span class="ct" style="color:#9333EA">🚚 Confirmar Carrier antes de emitir GR</span>
+    </div>
+    <div class="cb">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;align-items:end">
+        <div class="field"><label>N° Pedido</label><input id="pv-ped-carrier" placeholder="Número de pedido"></div>
+        <div class="field"><label>Carrier</label>
+          <select id="pv-carrier-sel" style="width:100%;padding:6px 8px;border:1px solid #D1D5DB;border-radius:6px;font-size:12px">
+            <option value="">— Seleccionar —</option>
+            <option value="Enotria">Enotria</option>
+            <option value="Toscano">Toscano</option>
+            <option value="Meta Logistic">Meta Logistic</option>
+            <option value="Otro">Otro (informal)</option>
+          </select>
+        </div>
+        <div class="field"><label>Fecha Recojo Confirmada</label><input type="date" id="pv-fecha-recojo"></div>
+        <div class="field"><label>Referencia / Tracking</label><input id="pv-carrier-ref" placeholder="N° guía carrier"></div>
+        <div style="align-self:flex-end">
+          <button onclick="pvRegistrarCarrier()" class="btn btn-p" style="width:100%;padding:8px">✅ Confirmar</button>
+        </div>
+      </div>
+      <div id="pv-carrier-msg" style="margin-top:6px;font-size:12px"></div>
+    </div>
+  </div>
+
   <div id="pv-operadores" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px"></div>
+
   <div class="card"><div class="tb-wrap"><table>
-    <thead><tr><th>Pedido</th><th>Canal</th><th>Cliente</th><th>Tel.</th><th>Depto.</th><th>Distrito</th><th>Dirección</th><th>Producto</th><th>Kg</th><th>S/.</th>
-    <th style="background:#F3E8FF;color:#9333EA">Operador ✏️</th><th style="background:#DCFCE7;color:#166534">Estado ✏️</th></tr></thead>
+    <thead><tr>
+      <th>Pedido</th><th>Canal</th><th>Cliente</th><th>Tel.</th><th>Depto.</th>
+      <th>Distrito</th><th>Dirección</th><th>Producto</th><th>Kg</th><th>S/.</th>
+      <th style="background:#F3E8FF;color:#9333EA">GR ✏️</th>
+      <th style="background:#FEF3C7;color:#92400E">Carrier ✏️</th>
+      <th style="background:#DCFCE7;color:#166534">F.Recojo ✏️</th>
+      <th style="background:#EFF6FF;color:#1E40AF">Estado ✏️</th>
+    </tr></thead>
     <tbody id="pv-body"></tbody>
   </table></div></div>
 </section>
@@ -3273,6 +3368,31 @@ if(typeof window !== "undefined") window.qrcode = qrcode;
       </div>
       <!-- Panel de resultados calculados -->
       <div id="kpi-manual-grid" style="margin-top:4px"></div>
+    </div>
+  </div>
+
+  <!-- PIPELINE KPIs -->
+  <div style="margin-top:18px">
+    <div style="background:linear-gradient(90deg,#0EA5E9,#7C3AED);border-radius:8px;padding:10px 16px;margin-bottom:10px">
+      <span style="color:#fff;font-size:13px;font-weight:700">📋 KPIs de Pipeline (en tiempo real)</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:10px">
+      <div class="card" style="padding:14px;text-align:center">
+        <div style="font-size:22px;font-weight:800;color:#EF4444" id="kpi-vencidos-pct">—</div>
+        <div style="font-size:11px;color:var(--ink-soft)">% F.Prog vencida sin acción</div>
+      </div>
+      <div class="card" style="padding:14px;text-align:center">
+        <div style="font-size:22px;font-weight:800;color:#F59E0B" id="kpi-mybees-pct">—</div>
+        <div style="font-size:11px;color:var(--ink-soft)">% integrados Mybees</div>
+      </div>
+      <div class="card" style="padding:14px;text-align:center">
+        <div style="font-size:22px;font-weight:800;color:#9333EA" id="kpi-prov-sin-carrier">—</div>
+        <div style="font-size:11px;color:var(--ink-soft)">Provincia con GR sin carrier</div>
+      </div>
+      <div class="card" style="padding:14px;text-align:center">
+        <div style="font-size:22px;font-weight:800;color:#059669" id="kpi-pipeline-sin-prog">—</div>
+        <div style="font-size:11px;color:var(--ink-soft)">Pedidos sin programar</div>
+      </div>
     </div>
   </div>
 </section>
@@ -4008,6 +4128,83 @@ if(typeof window !== "undefined") window.qrcode = qrcode;
           <div>Sin acreditaciones registradas aún</div>
         </div>
       </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="sec-pipeline" style="display:none">
+  <div class="ph" style="background:linear-gradient(135deg,#0369A1 0%,#0EA5E9 100%);border-radius:12px;padding:20px 24px;margin-bottom:20px">
+    <h1 style="color:#fff;margin:0 0 6px">📋 Pipeline de Pedidos</h1>
+    <p style="color:#BAE6FD;margin:0;font-size:13px">Clasificación automática de todos los pedidos ESPE por etapa operativa</p>
+  </div>
+
+  <!-- Semáforo: 8 estados -->
+  <div id="pipeline-semaforo" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:18px">
+    <!-- Generado por renderPipeline() -->
+  </div>
+
+  <!-- Alerta F.Prog Vencida -->
+  <div id="pipeline-alerta" style="display:none;background:#FEF2F2;border:2px solid #EF4444;border-radius:8px;padding:12px 16px;margin-bottom:14px">
+    <div style="font-size:13px;font-weight:700;color:#991B1B">⚠️ ALERTA: Pedidos con F.Prog. VENCIDA sin acción</div>
+    <div id="pipeline-alerta-list" style="font-size:12px;color:#7F1D1D;margin-top:6px;max-height:120px;overflow-y:auto"></div>
+  </div>
+
+  <!-- Filtros -->
+  <div class="card" style="margin-bottom:14px;padding:12px 16px">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:12px;font-weight:700;color:#0F1923">Filtrar:</span>
+      <select id="pipeline-filtro-estado" onchange="renderPipeline()"
+        style="padding:5px 8px;border:1px solid #D1D5DB;border-radius:6px;font-size:12px">
+        <option value="">Todos los estados</option>
+        <option value="SIN_PROG">SIN PROGRAMAR</option>
+        <option value="PROG_LIMA">PROGRAMADO — LIMA</option>
+        <option value="PROG_PROV">PROGRAMADO — PROVINCIA</option>
+        <option value="VENCIDA">F.PROG. VENCIDA ⚠</option>
+        <option value="EN_TRANSITO">EN TRÁNSITO</option>
+        <option value="ENTREGADO">ENTREGADO</option>
+        <option value="RECHAZO">RECHAZADO / REPROGRAMAR</option>
+        <option value="ANULADO">ANULADO</option>
+      </select>
+      <select id="pipeline-filtro-canal" onchange="renderPipeline()"
+        style="padding:5px 8px;border:1px solid #D1D5DB;border-radius:6px;font-size:12px">
+        <option value="">Todos los canales</option>
+        <option>MABE</option>
+        <option>MERPES</option>
+        <option>BACKUS</option>
+        <option>CALIDDA</option>
+        <option>PAYJOY</option>
+        <option>ELECTRODUNAS</option>
+        <option>PROYETOALIADO</option>
+      </select>
+      <input type="date" id="pipeline-filtro-fecha" onchange="renderPipeline()"
+        style="padding:5px 8px;border:1px solid #D1D5DB;border-radius:6px;font-size:12px">
+      <button onclick="document.getElementById('pipeline-filtro-estado').value='';document.getElementById('pipeline-filtro-canal').value='';document.getElementById('pipeline-filtro-fecha').value='';renderPipeline()"
+        style="padding:5px 12px;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;background:#F9FAFB">
+        🔄 Limpiar filtros
+      </button>
+      <span id="pipeline-conteo" style="margin-left:auto;font-size:12px;color:#6B7280"></span>
+    </div>
+  </div>
+
+  <!-- Tabla pipeline -->
+  <div class="card">
+    <div class="tb-wrap">
+      <table>
+        <thead><tr>
+          <th>Pedido</th>
+          <th>Canal</th>
+          <th>Estado Pipeline</th>
+          <th>F.Prog.</th>
+          <th>Estado SIG</th>
+          <th>Cliente</th>
+          <th>Depto.</th>
+          <th>Producto</th>
+          <th>GR</th>
+          <th>Carrier</th>
+          <th>Alerta</th>
+        </tr></thead>
+        <tbody id="pipeline-body"></tbody>
+      </table>
     </div>
   </div>
 </section>
@@ -9546,6 +9743,503 @@ function initDrivesButton(){
   btn.style.display = 'inline-flex';
 }
 document.addEventListener('DOMContentLoaded', initDrivesButton);
+
+// ============================================================
+// MEJORAS v2.0 — Pipeline, Corte, Provincias mejorado
+// ============================================================
+
+// ── CORTE ACTIVO ─────────────────────────────────────────────
+let _corteActivo = '1era';
+
+function setCortActivo(corte) {
+  _corteActivo = corte;
+  const badge = document.getElementById('hdr-corte');
+  if (badge) {
+    badge.style.display = 'block';
+    badge.textContent = corte === '1era' ? '⏰ 1ª VUELTA' : '⏰ 2ª VUELTA';
+    badge.style.color = corte === '1era' ? '#29ABE2' : '#F7941D';
+    badge.style.borderColor = corte === '1era' ? '#29ABE2' : '#F7941D';
+  }
+  const desc = document.getElementById('corte-filtro-desc');
+  if (desc) {
+    desc.textContent = corte === '1era'
+      ? '1ª Vuelta — pedidos con F.Prog asignada para mañana'
+      : '2ª Vuelta — pedidos adicionales del mismo día';
+  }
+  // Actualizar estado Mybees
+  _actualizarMybeesStatus();
+}
+
+function _actualizarMybeesStatus() {
+  const el = document.getElementById('corte-mybees-status');
+  if (!el) return;
+  // Determinar si hay datos de Mybees cargados
+  const hasMybees = (window.ST && window.ST.mybees && window.ST.mybees.length > 0);
+  el.textContent = hasMybees ? '🐝 Mybees: integrado ✓' : '🐝 Mybees: sin datos';
+  el.style.background = hasMybees ? '#D1FAE5' : '#F3E8FF';
+  el.style.color = hasMybees ? '#065F46' : '#7C3AED';
+}
+
+// Inicializar badge según hora
+(function initCorteBadge() {
+  const h = new Date().getHours();
+  // 1era vuelta si es de tarde (14h en adelante)
+  const inicial = (h >= 14) ? '1era' : '2da';
+  const radio = document.querySelector(`input[name="corte-sel"][value="${inicial}"]`);
+  if (radio) { radio.checked = true; setCortActivo(inicial); }
+  else { setCortActivo('1era'); }
+})();
+
+
+// ── CLASIFICACIÓN PIPELINE ────────────────────────────────────
+const PIPELINE_ESTADOS = {
+  SIN_PROG:    { label:'SIN PROGRAMAR',           color:'#64748B', bg:'#F1F5F9', icon:'⬜' },
+  PROG_LIMA:   { label:'PROGRAMADO — LIMA',        color:'#1D4ED8', bg:'#EFF6FF', icon:'🔵' },
+  PROG_PROV:   { label:'PROGRAMADO — PROVINCIA',   color:'#9333EA', bg:'#F5F3FF', icon:'🟣' },
+  VENCIDA:     { label:'F.PROG. VENCIDA ⚠',        color:'#DC2626', bg:'#FEF2F2', icon:'🔴' },
+  EN_TRANSITO: { label:'EN TRÁNSITO',              color:'#0369A1', bg:'#F0F9FF', icon:'🚚' },
+  ENTREGADO:   { label:'ENTREGADO',                color:'#059669', bg:'#F0FDF4', icon:'✅' },
+  RECHAZO:     { label:'RECHAZADO / REPROGRAMAR',  color:'#B45309', bg:'#FFFBEB', icon:'⚠️' },
+  ANULADO:     { label:'ANULADO',                  color:'#6B7280', bg:'#F9FAFB', icon:'❌' }
+};
+
+const DPTOS_LIMA = ['LIMA','CALLAO'];
+
+function _clasificarPedido(row, hoy) {
+  // row: objeto con campos del ESPE + RPTR merge
+  const estado = (row.ESTADO || row.Estado || '').toString().toUpperCase().trim();
+  const fProgStr = row['F.PROG'] || row['F.Prog'] || row['FPROG'] || '';
+  const depto = (row.DEPARTAMENTO || row.Departamento || row.DEPTO || '').toString().toUpperCase().trim();
+  const enRptr = !!row._enRptr; // marcado durante merge
+
+  if (estado === 'ANULADO') return 'ANULADO';
+  if (estado === 'ENTREGADO') return 'ENTREGADO';
+  if (['RECHAZOTEL','NO_CONTACTADO'].includes(estado)) return 'RECHAZO';
+  if (estado === 'ENTRANSITO' || enRptr) return 'EN_TRANSITO';
+
+  // Tiene F.Prog?
+  if (!fProgStr) return 'SIN_PROG';
+
+  // Parsear fecha
+  let fProg = null;
+  try {
+    const parts = fProgStr.toString().split(/[\/\-]/);
+    if (parts.length === 3) {
+      // dd/mm/yyyy or yyyy-mm-dd
+      if (parts[0].length === 4) fProg = new Date(+parts[0], +parts[1]-1, +parts[2]);
+      else fProg = new Date(+parts[2], +parts[1]-1, +parts[0]);
+    }
+  } catch(e){}
+
+  if (fProg) {
+    const fProgDate = new Date(fProg.getFullYear(), fProg.getMonth(), fProg.getDate());
+    const hoyDate = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+    if (fProgDate < hoyDate) return 'VENCIDA';
+  }
+
+  // Lima vs Provincia
+  if (DPTOS_LIMA.includes(depto)) return 'PROG_LIMA';
+  return 'PROG_PROV';
+}
+
+function renderPipeline() {
+  const tbody = document.getElementById('pipeline-body');
+  const semaforo = document.getElementById('pipeline-semaforo');
+  const alertaDiv = document.getElementById('pipeline-alerta');
+  const alertaList = document.getElementById('pipeline-alerta-list');
+  if (!tbody) return;
+
+  // Obtener datos — ESPE es la fuente principal
+  let rows = [];
+  if (window.ST && window.ST.espe && window.ST.espe.length) {
+    rows = window.ST.espe;
+  } else if (window.allData && window.allData.length) {
+    rows = window.allData;
+  }
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#9CA3AF;padding:24px">Carga primero el archivo ESPE desde "📥 Carga de Datos"</td></tr>';
+    return;
+  }
+
+  const hoy = new Date();
+  const filtroEstado = (document.getElementById('pipeline-filtro-estado') || {}).value || '';
+  const filtroCanal = (document.getElementById('pipeline-filtro-canal') || {}).value || '';
+  const filtroFecha = (document.getElementById('pipeline-filtro-fecha') || {}).value || '';
+
+  // Clasificar todos
+  const clasificados = rows.map(r => ({
+    ...r,
+    _pipeline: _clasificarPedido(r, hoy)
+  }));
+
+  // Contadores para semáforo
+  const contadores = {};
+  Object.keys(PIPELINE_ESTADOS).forEach(k => contadores[k] = 0);
+  clasificados.forEach(r => { if (contadores[r._pipeline] !== undefined) contadores[r._pipeline]++; });
+
+  // Render semáforo
+  if (semaforo) {
+    semaforo.innerHTML = Object.entries(PIPELINE_ESTADOS).map(([key, cfg]) => `
+      <div class="card" style="padding:12px;text-align:center;cursor:pointer;border-left:4px solid ${cfg.color}"
+           onclick="document.getElementById('pipeline-filtro-estado').value='${key}';renderPipeline()">
+        <div style="font-size:20px;font-weight:800;color:${cfg.color}">${contadores[key]}</div>
+        <div style="font-size:10px;color:#6B7280;margin-top:3px;line-height:1.3">${cfg.icon} ${cfg.label}</div>
+      </div>
+    `).join('');
+  }
+
+  // Alerta vencidos
+  const vencidos = clasificados.filter(r => r._pipeline === 'VENCIDA');
+  if (alertaDiv && alertaList) {
+    if (vencidos.length > 0) {
+      alertaDiv.style.display = 'block';
+      alertaList.innerHTML = vencidos.slice(0, 20).map(r => {
+        const num = r.NUMERO || r.Número || r.PEDIDO || '—';
+        const cli = r.CLIENTE || r.Cliente || '';
+        const fp = r['F.PROG'] || r['F.Prog'] || '';
+        return `<div>• Pedido <strong>${num}</strong> — ${cli} — F.Prog: ${fp}</div>`;
+      }).join('') + (vencidos.length > 20 ? `<div>... y ${vencidos.length-20} más</div>` : '');
+    } else {
+      alertaDiv.style.display = 'none';
+    }
+  }
+
+  // Filtrar para tabla
+  let filtrados = clasificados;
+  if (filtroEstado) filtrados = filtrados.filter(r => r._pipeline === filtroEstado);
+  if (filtroCanal) filtrados = filtrados.filter(r => {
+    const e = (r.ENTIDAD || r.Entidad || r.CANAL || r.Canal || '').toString().toUpperCase();
+    return e.includes(filtroCanal.toUpperCase());
+  });
+  if (filtroFecha) filtrados = filtrados.filter(r => {
+    const fp = r['F.PROG'] || r['F.Prog'] || '';
+    return fp.toString().includes(filtroFecha.split('-').reverse().join('/'));
+  });
+
+  const conteoEl = document.getElementById('pipeline-conteo');
+  if (conteoEl) conteoEl.textContent = `${filtrados.length} pedidos`;
+
+  if (!filtrados.length) {
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#9CA3AF;padding:24px">Sin resultados para el filtro seleccionado</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtrados.slice(0, 300).map(r => {
+    const cfg = PIPELINE_ESTADOS[r._pipeline] || PIPELINE_ESTADOS['SIN_PROG'];
+    const num = r.NUMERO || r.Número || r.PEDIDO || '—';
+    const canal = r.ENTIDAD || r.Entidad || r.CANAL || '—';
+    const estado = r.ESTADO || r.Estado || '—';
+    const fprog = r['F.PROG'] || r['F.Prog'] || '—';
+    const cliente = r.CLIENTE || r.Cliente || '—';
+    const depto = r.DEPARTAMENTO || r.Departamento || r.DEPTO || '—';
+    const prod = r.PRODUCTO || r.Producto || r.DESCRIPCION || '—';
+    const gr = r.GR || r['N°GR'] || r.NUMERO_GR || '—';
+    const carrier = r._carrier || '—';
+    const alerta = r._pipeline === 'VENCIDA' ? '⚠️ VENCIDA' : (r._pipeline === 'PROG_PROV' && gr !== '—' && carrier === '—') ? '⚠️ GR sin carrier' : '';
+    return `<tr>
+      <td style="font-weight:600">${num}</td>
+      <td>${canal}</td>
+      <td>
+        <span style="background:${cfg.bg};color:${cfg.color};padding:3px 8px;border-radius:12px;font-size:10px;font-weight:700;white-space:nowrap">
+          ${cfg.icon} ${cfg.label}
+        </span>
+      </td>
+      <td>${fprog}</td>
+      <td>${estado}</td>
+      <td>${cliente}</td>
+      <td>${depto}</td>
+      <td>${prod}</td>
+      <td>${gr}</td>
+      <td>${carrier}</td>
+      <td style="color:#DC2626;font-weight:700;font-size:11px">${alerta}</td>
+    </tr>`;
+  }).join('');
+
+  // Actualizar KPIs de pipeline
+  _renderPipelineKpis(clasificados);
+}
+
+function _renderPipelineKpis(clasificados) {
+  const total = clasificados.length;
+  if (!total) return;
+
+  const vencidos = clasificados.filter(r => r._pipeline === 'VENCIDA').length;
+  const enTransito = clasificados.filter(r => r._pipeline === 'EN_TRANSITO').length;
+  const entregados = clasificados.filter(r => r._pipeline === 'ENTREGADO').length;
+  const provincia = clasificados.filter(r => ['PROG_PROV'].includes(r._pipeline));
+  const provSinCarrier = provincia.filter(r => {
+    const gr = r.GR || r['N°GR'] || '';
+    const carrier = r._carrier || '';
+    return gr && !carrier;
+  }).length;
+
+  // Mybees %
+  const mypebes = (window.ST && window.ST.mybees && window.ST.mybees.length) || 0;
+  const activosLima = clasificados.filter(r => ['PROG_LIMA','VENCIDA'].includes(r._pipeline)).length;
+  const mybesPct = activosLima > 0 ? Math.round(mypebes / activosLima * 100) : 0;
+
+  // OTIF estimado
+  const otifBase = total > 0 ? Math.round((entregados / (entregados + vencidos + clasificados.filter(r=>r._pipeline==='RECHAZO').length)) * 100 || 0) : 0;
+
+  const set = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = val; };
+  set('kpi-vencidos-pct', vencidos ? `${Math.round(vencidos/total*100)}%` : '0%');
+  set('kpi-mybees-pct', `${mybesPct}%`);
+  set('kpi-prov-sin-carrier', provSinCarrier || '0');
+  set('kpi-pipeline-sin-prog', clasificados.filter(r=>r._pipeline==='SIN_PROG').length || '0');
+}
+
+
+// ── CONSTRUIR BASE DIARIA ─────────────────────────────────────
+function construirBaseDiaria() {
+  const msg = document.getElementById('msg-base-diaria');
+  if (msg) msg.textContent = '⏳ Cruzando fuentes...';
+
+  const espe = (window.ST && window.ST.espe) || [];
+  const rptr = (window.ST && window.ST.rptr) || [];
+  const conf = (window.ST && window.ST.conf) || [];
+
+  if (!espe.length) {
+    if (msg) msg.innerHTML = '<span style="color:#EF4444">⚠️ Primero carga el archivo ESPE</span>';
+    return;
+  }
+
+  // Build lookup maps
+  const rptrMap = {};
+  rptr.forEach(r => {
+    const k = (r.NUMERO || r.Número || r.PEDIDO || '').toString().trim();
+    if (k) rptrMap[k] = r;
+  });
+
+  const confMap = {};
+  conf.forEach(r => {
+    const k = (r.PEDIDO || r.NUMERO || r.Número || '').toString().trim();
+    if (k) confMap[k] = r;
+  });
+
+  // Merge
+  const merged = espe.map(row => {
+    const key = (row.NUMERO || row.Número || row.PEDIDO || '').toString().trim();
+    const rRow = rptrMap[key] || {};
+    const cRow = confMap[key] || {};
+    return {
+      ...row,
+      _enRptr: !!rptrMap[key],
+      _enConf: !!confMap[key],
+      _gr: rRow.GR || rRow['N°GR'] || '',
+      _carrier: cRow.CARRIER || cRow.Carrier || row._carrier || '',
+      _fechaRecojo: cRow['FECHA_RECOJO'] || cRow['F.RECOJO'] || '',
+      _estadoConf: cRow.ESTADO_CONF || cRow['ESTADO CONF'] || '',
+      // Diferencias
+      _difEstado: (cRow.ESTADO_CONF && cRow.ESTADO_CONF !== (row.ESTADO || row.Estado)) ? '⚠️ Estado diff.' : ''
+    };
+  });
+
+  // Guardar en ST
+  if (!window.ST) window.ST = {};
+  window.ST.baseDiaria = merged;
+
+  // Stats
+  const totalEspe = espe.length;
+  const enRptr = merged.filter(r => r._enRptr).length;
+  const enConf = merged.filter(r => r._enConf).length;
+  const difs = merged.filter(r => r._difEstado).length;
+
+  if (msg) {
+    msg.innerHTML = `<span style="color:#10B981">✅ Base Diaria construida: <strong>${totalEspe}</strong> pedidos ESPE | 
+      <strong>${enRptr}</strong> con GR (RPTR) | 
+      <strong>${enConf}</strong> con confirmación | 
+      <strong>${difs}</strong> diferencias de estado</span>`;
+  }
+
+  // Trigger refresh del pipeline si está activo
+  if (document.getElementById('sec-pipeline') && document.getElementById('sec-pipeline').style.display !== 'none') {
+    // Pasar datos merged al pipeline
+    if (window.ST) window.ST.espe = merged;
+    renderPipeline();
+  }
+}
+
+
+// ── PROVINCIAS MEJORADO ───────────────────────────────────────
+let _pvVista = 'todos';
+const _pvCarrierData = {}; // key=pedido → {carrier, fechaRecojo, ref}
+
+function pvSetVista(vista) {
+  _pvVista = vista;
+  const btns = { todos:'pv-btn-todos', 'sin-gr':'pv-btn-sin-gr', 'con-gr':'pv-btn-con-gr' };
+  Object.entries(btns).forEach(([k,id]) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    const active = k === vista;
+    if (k === 'todos') {
+      btn.style.background = active ? '#9333EA' : '#F9FAFB';
+      btn.style.color = active ? '#fff' : '#374151';
+    } else if (k === 'sin-gr') {
+      btn.style.background = active ? '#F59E0B' : '#FFF7ED';
+      btn.style.color = active ? '#fff' : '#92400E';
+    } else {
+      btn.style.background = active ? '#059669' : '#F0FDF4';
+      btn.style.color = active ? '#fff' : '#065F46';
+    }
+  });
+  renderProvinciasMejorado();
+}
+
+function pvRegistrarCarrier() {
+  const ped = (document.getElementById('pv-ped-carrier') || {}).value || '';
+  const carrier = (document.getElementById('pv-carrier-sel') || {}).value || '';
+  const fecha = (document.getElementById('pv-fecha-recojo') || {}).value || '';
+  const ref = (document.getElementById('pv-carrier-ref') || {}).value || '';
+  const msg = document.getElementById('pv-carrier-msg');
+
+  if (!ped || !carrier) {
+    if (msg) msg.innerHTML = '<span style="color:#EF4444">⚠️ Ingresa número de pedido y carrier</span>';
+    return;
+  }
+  if (!fecha) {
+    if (msg) msg.innerHTML = '<span style="color:#F59E0B">⚠️ Se recomienda confirmar fecha de recojo antes de emitir GR</span>';
+  }
+
+  _pvCarrierData[ped.trim()] = { carrier, fechaRecojo: fecha, ref };
+  if (msg) msg.innerHTML = `<span style="color:#059669">✅ Carrier registrado para pedido ${ped}: ${carrier} — ${fecha || 'sin fecha'}</span>`;
+
+  // Limpiar
+  ['pv-ped-carrier','pv-carrier-ref','pv-fecha-recojo'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  document.getElementById('pv-carrier-sel').value = '';
+
+  renderProvinciasMejorado();
+}
+
+function renderProvinciasMejorado() {
+  const tbody = document.getElementById('pv-body');
+  if (!tbody) return;
+
+  // Fuente de datos
+  let rows = (window.ST && window.ST.baseDiaria) || (window.ST && window.ST.espe) || [];
+  // Filtrar solo provincia
+  const dptos_lima = ['LIMA','CALLAO'];
+  let prov = rows.filter(r => {
+    const d = (r.DEPARTAMENTO || r.Departamento || r.DEPTO || '').toString().toUpperCase().trim();
+    return d && !dptos_lima.includes(d);
+  });
+
+  // Enriquecer con carrier registrado
+  prov = prov.map(r => {
+    const key = (r.NUMERO || r.Número || r.PEDIDO || '').toString().trim();
+    const cd = _pvCarrierData[key] || {};
+    return { ...r, _carrier: cd.carrier || r._carrier || '', _fechaRecojo: cd.fechaRecojo || r._fechaRecojo || '', _carrierRef: cd.ref || '' };
+  });
+
+  // Separar SIN GR vs CON GR
+  const sinGr = prov.filter(r => !r._enRptr && !(r.GR || r['N°GR']));
+  const conGr = prov.filter(r => r._enRptr || (r.GR || r['N°GR']));
+
+  // Alerta: GR sin carrier
+  const grSinCarrier = conGr.filter(r => !r._carrier);
+  const alertaEl = document.getElementById('pv-alerta-gr');
+  const alertaDetalle = document.getElementById('pv-alerta-gr-detalle');
+  if (alertaEl && alertaDetalle) {
+    if (grSinCarrier.length > 0) {
+      alertaEl.style.display = 'block';
+      alertaDetalle.textContent = `${grSinCarrier.length} pedido(s): ` + grSinCarrier.slice(0,5).map(r => r.NUMERO || r.Número || '?').join(', ');
+    } else {
+      alertaEl.style.display = 'none';
+    }
+  }
+
+  // KPI tiles
+  const setEl = (id,v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
+  setEl('pv-cnt', prov.length);
+  setEl('pv-sin-gr', sinGr.length);
+  setEl('pv-con-gr', conGr.length);
+
+  // Peso y monto total
+  const totalKg = prov.reduce((s,r)=>s+(parseFloat(r.PESO||r.Peso||r.KG||0)||0),0);
+  const totalSol = prov.reduce((s,r)=>s+(parseFloat(r.MONTO||r.Monto||r.VALOR||0)||0),0);
+  setEl('pv-kg', totalKg.toFixed(1)+' kg');
+  setEl('pv-sol', 'S/ '+totalSol.toFixed(0));
+
+  // Carrier resumen
+  const byCarrier = {};
+  conGr.forEach(r => {
+    const c = r._carrier || 'Sin carrier';
+    byCarrier[c] = (byCarrier[c]||0)+1;
+  });
+  const resumenEl = document.getElementById('pv-carrier-resumen');
+  if (resumenEl) {
+    resumenEl.textContent = Object.entries(byCarrier).map(([c,n])=>`${c}: ${n}`).join(' | ');
+  }
+
+  // Seleccionar qué mostrar
+  let visible = prov;
+  if (_pvVista === 'sin-gr') visible = sinGr;
+  else if (_pvVista === 'con-gr') visible = conGr;
+
+  if (!visible.length) {
+    tbody.innerHTML = `<tr><td colspan="14" style="text-align:center;color:#9CA3AF;padding:24px">
+      ${!rows.length ? 'Carga primero el archivo ESPE' : 'Sin pedidos provincia para esta vista'}
+    </td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = visible.map(r => {
+    const key = (r.NUMERO || r.Número || r.PEDIDO || '').toString().trim();
+    const num = key || '—';
+    const canal = r.ENTIDAD || r.Entidad || r.CANAL || '—';
+    const cli = r.CLIENTE || r.Cliente || '—';
+    const tel = r.TELEFONO || r.Telefono || r.TEL || '—';
+    const depto = r.DEPARTAMENTO || r.Departamento || r.DEPTO || '—';
+    const dist = r.DISTRITO || r.Distrito || '—';
+    const dir = r.DIRECCION || r.Dirección || r.DIR || '—';
+    const prod = r.PRODUCTO || r.Producto || r.DESCRIPCION || '—';
+    const kg = r.PESO || r.Peso || r.KG || '—';
+    const sol = r.MONTO || r.Monto || r.VALOR || '—';
+    const gr = r.GR || r['N°GR'] || r._gr || '';
+    const carrier = r._carrier || '';
+    const fRec = r._fechaRecojo || '';
+    const estado = r.ESTADO || r.Estado || '—';
+
+    const grChip = gr
+      ? `<span style="background:#D1FAE5;color:#065F46;padding:2px 6px;border-radius:8px;font-size:10px">${gr}</span>`
+      : `<span style="background:#FEF3C7;color:#92400E;padding:2px 6px;border-radius:8px;font-size:10px">Sin GR</span>`;
+
+    const carrierChip = carrier
+      ? `<span style="background:#EDE9FE;color:#5B21B6;padding:2px 6px;border-radius:8px;font-size:10px">${carrier}</span>`
+      : (gr ? `<span style="color:#DC2626;font-size:10px;font-weight:700">⚠️ Confirmar</span>` : '—');
+
+    return `<tr>
+      <td style="font-weight:600">${num}</td>
+      <td>${canal}</td>
+      <td>${cli}</td>
+      <td>${tel}</td>
+      <td>${depto}</td>
+      <td>${dist}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${dir}">${dir}</td>
+      <td>${prod}</td>
+      <td>${kg}</td>
+      <td>${sol}</td>
+      <td>${grChip}</td>
+      <td>${carrierChip}</td>
+      <td>${fRec || '—'}</td>
+      <td>${estado}</td>
+    </tr>`;
+  }).join('');
+}
+
+// Patch showTab para ejecutar renders al cambiar de pestaña
+const _showTabOrig = typeof showTab === 'function' ? showTab : null;
+if (_showTabOrig) {
+  window.showTab = function(id, el) {
+    _showTabOrig(id, el);
+    if (id === 'pipeline') setTimeout(renderPipeline, 50);
+    if (id === 'provincias') setTimeout(renderProvinciasMejorado, 50);
+    if (id === 'kpi') setTimeout(_actualizarMybeesStatus, 50);
+  };
+}
 
 </script>
 <!-- CONFIG MODAL -->
