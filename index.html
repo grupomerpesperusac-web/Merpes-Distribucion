@@ -9998,7 +9998,7 @@ function construirBaseDiaria() {
   const msg = document.getElementById('msg-base-diaria');
   if (msg) msg.textContent = '⏳ Cruzando fuentes...';
 
-  // ST es la variable global; usar los nombres reales del estado
+  // ST es la variable global (no window.ST); usar los nombres reales del estado
   const espe = (typeof ST !== 'undefined' && (ST.espe_todos || ST.pedidos)) || [];
   const rptr = (typeof ST !== 'undefined' && ST.pedidos_rptr) || [];
   const conf = (typeof ST !== 'undefined' && ST.confirmaciones) || [];
@@ -10008,38 +10008,49 @@ function construirBaseDiaria() {
     return;
   }
 
-  // Build lookup maps
+  // Helper: extrae la clave de pedido de un objeto, tolerando mayúsculas/minúsculas
+  function _keyPedido(r) {
+    return String(r.numero || r.NUMERO || r.Número || r.PEDIDO || r.pedido || '').trim();
+  }
+
+  // Build lookup maps (RPTR y CONF)
   const rptrMap = {};
   rptr.forEach(r => {
-    const k = (r.NUMERO || r.Número || r.PEDIDO || '').toString().trim();
+    const k = _keyPedido(r);
     if (k) rptrMap[k] = r;
   });
 
   const confMap = {};
   conf.forEach(r => {
-    const k = (r.PEDIDO || r.NUMERO || r.Número || '').toString().trim();
+    const k = _keyPedido(r);
     if (k) confMap[k] = r;
   });
 
-  // Merge
+  // Merge ESPE + RPTR + CONF
   const merged = espe.map(row => {
-    const key = (row.NUMERO || row.Número || row.PEDIDO || '').toString().trim();
+    const key = _keyPedido(row);
     const rRow = rptrMap[key] || {};
     const cRow = confMap[key] || {};
+    // Extraer GR del RPTR (varios alias posibles según el archivo)
+    const gr = String(rRow.GR || rRow['N°GR'] || rRow['N° GR'] || rRow['NROGR'] || rRow.gr || '').trim();
+    // Extraer carrier, fecha y estado del CONF
+    const carrier = String(cRow.CARRIER || cRow.Carrier || cRow.carrier || '').trim();
+    const fechaRec = String(cRow['FECHA_RECOJO'] || cRow['F.RECOJO'] || cRow['FECHA RECOJO'] || cRow.fecha_recojo || '').trim();
+    const estadoConf = String(cRow.ESTADO_CONF || cRow['ESTADO CONF'] || cRow.estado_conf || cRow.ESTADO || '').trim();
+    const estadoEspe = String(row.estado || row.ESTADO || '').toUpperCase().trim();
     return {
       ...row,
       _enRptr: !!rptrMap[key],
       _enConf: !!confMap[key],
-      _gr: rRow.GR || rRow['N°GR'] || '',
-      _carrier: cRow.CARRIER || cRow.Carrier || row._carrier || '',
-      _fechaRecojo: cRow['FECHA_RECOJO'] || cRow['F.RECOJO'] || '',
-      _estadoConf: cRow.ESTADO_CONF || cRow['ESTADO CONF'] || '',
-      // Diferencias
-      _difEstado: (cRow.ESTADO_CONF && cRow.ESTADO_CONF !== (row.ESTADO || row.Estado)) ? '⚠️ Estado diff.' : ''
+      _gr: gr,
+      _carrier: carrier,
+      _fechaRecojo: fechaRec,
+      _estadoConf: estadoConf,
+      _difEstado: (estadoConf && estadoConf.toUpperCase() !== estadoEspe) ? '⚠️ Estado diff.' : ''
     };
   });
 
-  // Guardar en ST
+  // Guardar en el ST global
   ST.baseDiaria = merged;
 
   // Stats
@@ -10061,7 +10072,6 @@ function construirBaseDiaria() {
 
   // Trigger refresh del pipeline si está activo
   if (document.getElementById('sec-pipeline') && document.getElementById('sec-pipeline').style.display !== 'none') {
-    // Pasar datos merged al pipeline
     renderPipeline();
   }
 }
@@ -10074,32 +10084,62 @@ function exportarBaseDiaria() {
     return;
   }
 
-  // Columnas a exportar: primero las del ESPE, luego las enriquecidas
-  const colsEnriquecidas = ['_enRptr','_enConf','_gr','_carrier','_fechaRecojo','_estadoConf','_difEstado'];
-  const colsEspe = Object.keys(base[0]).filter(k => !k.startsWith('_'));
+  // ─────────────────────────────────────────────────────────────────────────
+  // ESTRUCTURA EXACTA DEL MODELO "BASE DIARIA LOGÍSTICA" en Google Drive
+  // Columnas en el mismo orden que el archivo modelo:
+  //   CRUCE | CORTE | FUERZA DE VENTA | CLIENTE | DNI | TELEFONO | PEDIDO |
+  //   FECHA BASE | DIRECCIÓN | PRODUCTO | UND | FECHA GUIA | BLT | GUIA |
+  //   FECHA DESPACHO | ESTADO | PLACA | DETALLE | SUB DETALLE | VENDEDOR |
+  //   LIDER DE AREA | DISTRITO | COSTO | DNI2 | GUIA3 |
+  //   TIENE GR | TIENE CONF | N° GR | CARRIER | F. RECOJO | ESTADO CONF | DIF. ESTADO
+  // ─────────────────────────────────────────────────────────────────────────
 
-  // Encabezados amigables para columnas enriquecidas
-  const headerMap = {
-    '_enRptr':     'TIENE GR',
-    '_enConf':     'TIENE CONF',
-    '_gr':         'N° GR',
-    '_carrier':    'CARRIER',
-    '_fechaRecojo':'F. RECOJO',
-    '_estadoConf': 'ESTADO CONF',
-    '_difEstado':  'DIFERENCIA ESTADO'
-  };
+  const headers = [
+    'CRUCE','CORTE','FUERZA DE VENTA','CLIENTE','DNI','TELEFONO','PEDIDO',
+    'FECHA BASE','DIRECCIÓN','PRODUCTO','UND','FECHA GUIA',
+    'BLT','GUIA','FECHA DESPACHO','ESTADO','PLACA',
+    'DETALLE','SUB DETALLE','VENDEDOR','LIDER DE AREA','DISTRITO','COSTO',
+    'DNI2','GUIA3',
+    // Columnas enriquecidas por la herramienta
+    'TIENE GR','TIENE CONF','N° GR','CARRIER','F. RECOJO','ESTADO CONF','DIF. ESTADO'
+  ];
 
-  const allCols = [...colsEspe, ...colsEnriquecidas];
-  const headers = allCols.map(c => headerMap[c] || c);
-
-  // Construir filas
-  const rows = base.map(row =>
-    allCols.map(c => {
-      const v = row[c];
-      if (c === '_enRptr' || c === '_enConf') return v ? 'SÍ' : 'NO';
-      return v !== undefined && v !== null ? String(v) : '';
-    })
-  );
+  // Mapeo de campos internos del objeto baseDiaria → columnas del modelo
+  const rows = base.map(row => [
+    '',                                                        // CRUCE (fórmula en el modelo, vacío al exportar)
+    '',                                                        // CORTE
+    row.fuerza_venta || row.canal || '',                       // FUERZA DE VENTA
+    row.cliente || '',                                         // CLIENTE
+    row.doc || row.dni || '',                                  // DNI
+    row.tel || '',                                             // TELEFONO
+    row.numero || '',                                          // PEDIDO
+    row.f_venta || row.fecha_base || '',                       // FECHA BASE
+    row.dir || row.direccion || '',                            // DIRECCIÓN
+    row.producto || '',                                        // PRODUCTO
+    row.und || row.qty || '',                                  // UND
+    row.f_estado || row.fecha_guia || '',                      // FECHA GUIA
+    row.blt || '',                                             // BLT
+    row.guia || row._gr || '',                                 // GUIA
+    row.fecha_despacho || '',                                  // FECHA DESPACHO
+    row.estado || '',                                          // ESTADO
+    row.placa || '',                                           // PLACA
+    row.detalle || row._carrier || '',                         // DETALLE
+    row.sub_detalle || row.sub_estado || '',                   // SUB DETALLE
+    row.vendedor || '',                                        // VENDEDOR
+    row.lider_area || '',                                      // LIDER DE AREA
+    row.distrito || '',                                        // DISTRITO
+    row.monto || row.costo || '',                              // COSTO
+    '',                                                        // DNI2 (fórmula en modelo)
+    '',                                                        // GUIA3 (fórmula en modelo)
+    // Columnas enriquecidas
+    row._enRptr ? 'SÍ' : 'NO',                                // TIENE GR
+    row._enConf ? 'SÍ' : 'NO',                                // TIENE CONF
+    row._gr || '',                                             // N° GR
+    row._carrier || '',                                        // CARRIER
+    row._fechaRecojo || '',                                    // F. RECOJO
+    row._estadoConf || '',                                     // ESTADO CONF
+    row._difEstado || ''                                       // DIF. ESTADO
+  ]);
 
   // Crear workbook con SheetJS (ya incluido en la webapp)
   if (typeof XLSX === 'undefined') {
@@ -10112,8 +10152,8 @@ function exportarBaseDiaria() {
 
   // Ancho de columnas automático
   const colWidths = headers.map((h, i) => {
-    const maxLen = Math.max(h.length, ...rows.map(r => (r[i] || '').length));
-    return { wch: Math.min(maxLen + 2, 40) };
+    const maxLen = Math.max(h.length, ...rows.map(r => (String(r[i] || '').length)));
+    return { wch: Math.min(maxLen + 2, 45) };
   });
   ws['!cols'] = colWidths;
 
