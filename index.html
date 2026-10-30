@@ -5096,6 +5096,8 @@ function pR(rows){
       }));n++;
     }
   });
+  // Guardar filas raw del RPTR en ST.pedidos_rptr para que construirBaseDiaria() pueda cruzar
+  ST.pedidos_rptr = rows;
   ST.cargados.rptr=n;
   document.getElementById('rptr-c').textContent=n+' ítems';
   smsg('rptr','ok','✅ '+n+' ítems RPTR procesados');
@@ -10008,9 +10010,26 @@ function construirBaseDiaria() {
     return;
   }
 
-  // Helper: extrae la clave de pedido de un objeto, tolerando mayúsculas/minúsculas
+  // Helper: extrae la clave de pedido de un objeto, tolerando mayúsculas/minúsculas y espacios
   function _keyPedido(r) {
-    return String(r.numero || r.NUMERO || r.Número || r.PEDIDO || r.pedido || '').trim();
+    return String(
+      r.numero || r.NUMERO || r.Número || r.PEDIDO || r.pedido ||
+      r['N° PEDIDO'] || r['NRO PEDIDO'] || r['Nro Pedido'] ||
+      r['_col_1'] || r['_col_0'] || ''
+    ).trim();
+  }
+
+  // DEBUG: mostrar primeras claves del RPTR raw para diagnosticar el cruce
+  if (rptr.length > 0) {
+    const sample = rptr[0];
+    const allKeys = Object.keys(sample).filter(k => !k.startsWith('_col_'));
+    const sampleKey = _keyPedido(sample);
+    console.log('[BD-DEBUG] RPTR raw primera fila keys:', allKeys);
+    console.log('[BD-DEBUG] RPTR raw primera fila VALORES:', JSON.stringify(sample));
+    console.log('[BD-DEBUG] _keyPedido(rptr[0]) =', sampleKey);
+    // También mostrar qué clave tienen los pedidos ESPE CONFIRMADOS
+    const primConf = espe.find(r => String(r.estado||'').toUpperCase()==='CONFIRMADO');
+    if(primConf) console.log('[BD-DEBUG] ESPE CONFIRMADO key ejemplo:', _keyPedido(primConf), '| estado:', primConf.estado);
   }
 
   // Build lookup maps (RPTR y CONF)
@@ -10111,15 +10130,28 @@ function construirBaseDiaria() {
   const enConf = merged.filter(r => r._enConf).length;
   const difs = merged.filter(r => r._difEstado).length;
 
+  // Debug: tamaño real del rptrMap
+  const rptrMapSize = Object.keys(rptrMap).length;
+  const rptrSampleKeys = Object.keys(rptrMap).slice(0,3).join(', ');
+  const espeSampleKeys = espe.filter(r=>String(r.estado||'').toUpperCase()==='CONFIRMADO').slice(0,3).map(r=>_keyPedido(r)).join(', ');
+
   if (msg) {
-    msg.innerHTML = `<span style="color:#10B981">✅ Base Diaria (Cristhian): <strong>${enRptr}</strong> pedidos listos para ruta |
-      (ESPE total: ${totalEspe} | CONFIRMADOS: ${confirmados} | con GR/NSG: <strong>${enRptr}</strong> |
-      con confirmación: ${enConf} | diferencias de estado: ${difs})</span>`;
+    const color = enRptr > 0 ? '#10B981' : '#F59E0B';
+    msg.innerHTML = `<span style="color:${color}">
+      ${enRptr > 0 ? '✅' : '⚠️'} Base Diaria (Cristhian): <strong>${enRptr}</strong> pedidos listos para ruta |
+      ESPE total: ${totalEspe} | CONFIRMADOS: ${confirmados} | con GR/NSG: <strong>${enRptr}</strong> |
+      con confirmación: ${enConf} | diferencias: ${difs}
+      ${enRptr === 0 ? `<br><small style="color:#9CA3AF">
+        🔍 Debug: RPTR cargado: ${rptr.length} filas | rptrMap keys: ${rptrMapSize} |
+        Ejs. keys RPTR: [${rptrSampleKeys}] | Ejs. keys ESPE CONF: [${espeSampleKeys}]
+        <br>Ver consola del navegador (F12) para detalle completo
+      </small>` : ''}
+    </span>`;
   }
 
-  // Mostrar botón de descarga
+  // Mostrar botón de descarga solo si hay pedidos
   const btnExport = document.getElementById('btn-exportar-base');
-  if (btnExport) btnExport.style.display = '';
+  if (btnExport) btnExport.style.display = enRptr > 0 ? '' : 'none';
 
   // Trigger refresh del pipeline si está activo
   if (document.getElementById('sec-pipeline') && document.getElementById('sec-pipeline').style.display !== 'none') {
