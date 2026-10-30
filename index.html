@@ -5096,8 +5096,27 @@ function pR(rows){
       }));n++;
     }
   });
-  // Guardar filas raw del RPTR en ST.pedidos_rptr para que construirBaseDiaria() pueda cruzar
-  ST.pedidos_rptr = rows;
+  // Guardar filas RPTR enriquecidas con campos nombrados para que construirBaseDiaria() pueda cruzar
+  ST.pedidos_rptr = rows.map(r => ({
+    // campos posicionales originales (por si acaso)
+    ...r,
+    // campos nombrados extraídos con gR() para que _keyPedido() y _tieneGR() funcionen
+    PEDIDO:   gR(r,['numero','número','n° pedido','nro pedido','pedido','nropedido'],[0,1]),
+    GUIA:     gR(r,['n° guia','nro guia','numero guia','n° guía','nro. guia','nro guía','nrp guia','guia','guía','n guia','nroguia','numero de guia','n° de guia','nro de guia','n° gr','nro gr','gr'],[]),
+    ESTADO:   gR(r,['estado','status'],[]),
+    PRODUCTO: gR(r,['descripción','descripcion','desc','producto','descripcion producto'],[]),
+    UND:      gR(r,['unidades','und','cantidad'],[]),
+    BLT:      gR(r,['blt','bultos','bulto'],[]),
+    PLACA:    gR(r,['placa'],[7]),
+    DETALLE:  gR(r,['detalle'],[]),
+    SUBDETALLE: gR(r,['sub detalle','subdetalle','sub_detalle'],[]),
+    VENDEDOR: gR(r,['vendedor'],[]),
+    'LIDER DE AREA': gR(r,['lider de area','lider area','líder de área','lider_area'],[]),
+    'FECHA GUIA':    gR(r,['fecha guia','fecha_guia','f. guia','fguia'],[]),
+    'FECHA DESPACHO':gR(r,['fecha despacho','fecha_despacho','f. despacho'],[]),
+    DISTRITO: gR(r,['distrito'],[]),
+    'FUERZA DE VENTA': gR(r,['fuerza','fuerza de venta','fuerza_de_venta','fuerza venta','fuerza_venta','fza venta','fza. venta','f. venta','fv'],[5,6]),
+  }));
   ST.cargados.rptr=n;
   document.getElementById('rptr-c').textContent=n+' ítems';
   smsg('rptr','ok','✅ '+n+' ítems RPTR procesados');
@@ -10012,11 +10031,13 @@ function construirBaseDiaria() {
 
   // Helper: extrae la clave de pedido de un objeto, tolerando mayúsculas/minúsculas y espacios
   function _keyPedido(r) {
-    return String(
+    const raw = String(
       r.numero || r.NUMERO || r.Número || r.PEDIDO || r.pedido ||
       r['N° PEDIDO'] || r['NRO PEDIDO'] || r['Nro Pedido'] ||
       r['_col_1'] || r['_col_0'] || ''
     ).trim();
+    // Normalizar: quitar ceros a la izquierda para que 000001008882449 == 1008882449
+    return raw.replace(/^0+/, '') || raw;
   }
 
   // DEBUG: mostrar primeras claves del RPTR raw para diagnosticar el cruce
@@ -10024,10 +10045,10 @@ function construirBaseDiaria() {
     const sample = rptr[0];
     const allKeys = Object.keys(sample).filter(k => !k.startsWith('_col_'));
     const sampleKey = _keyPedido(sample);
-    console.log('[BD-DEBUG] RPTR raw primera fila keys:', allKeys);
-    console.log('[BD-DEBUG] RPTR raw primera fila VALORES:', JSON.stringify(sample));
-    console.log('[BD-DEBUG] _keyPedido(rptr[0]) =', sampleKey);
-    // También mostrar qué clave tienen los pedidos ESPE CONFIRMADOS
+    const colsPos = [0,1,2,3,4,5].map(i => `col${i}=${sample['_col_'+i]??'?'}`).join(' | ');
+    console.log('[BD-DEBUG] RPTR enriquecido primera fila:', JSON.stringify(sample));
+    console.log('[BD-DEBUG] RPTR cols posicionales:', colsPos);
+    console.log('[BD-DEBUG] _keyPedido(rptr[0]) =', sampleKey, '| PEDIDO field =', sample.PEDIDO, '| GUIA field =', sample.GUIA, '| ESTADO field =', sample.ESTADO);
     const primConf = espe.find(r => String(r.estado||'').toUpperCase()==='CONFIRMADO');
     if(primConf) console.log('[BD-DEBUG] ESPE CONFIRMADO key ejemplo:', _keyPedido(primConf), '| estado:', primConf.estado);
   }
@@ -10144,6 +10165,7 @@ function construirBaseDiaria() {
       ${enRptr === 0 ? `<br><small style="color:#9CA3AF">
         🔍 Debug: RPTR cargado: ${rptr.length} filas | rptrMap keys: ${rptrMapSize} |
         Ejs. keys RPTR: [${rptrSampleKeys}] | Ejs. keys ESPE CONF: [${espeSampleKeys}]
+        ${rptr.length > 0 ? `<br>RPTR fila1 cols: ${[0,1,2,3,4].map(i=>`c${i}=${rptr[0]['_col_'+i]??'?'}`).join(' | ')} | PEDIDO=${rptr[0].PEDIDO??'?'} | GUIA=${rptr[0].GUIA??'?'} | ESTADO=${rptr[0].ESTADO??'?'}` : ''}
         <br>Ver consola del navegador (F12) para detalle completo
       </small>` : ''}
     </span>`;
